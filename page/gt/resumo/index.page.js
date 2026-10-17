@@ -3,7 +3,7 @@ import { px } from "@zos/utils";
 import { replace } from "@zos/router";
 import * as sensor from "@zos/sensor";
 import { DEVICE_WIDTH, DEVICE_HEIGHT } from "../layout.js";
-import { treinos } from "../dados.js";
+import { carregarFichas } from "../ficha.js";
 import { limparSessao } from "../sessao.js";
 
 const LIMA = 0xb6ff00;

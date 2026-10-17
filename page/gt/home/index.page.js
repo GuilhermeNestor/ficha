@@ -3,8 +3,8 @@ import { px } from "@zos/utils";
 import { push, replace } from "@zos/router";
 import { onDigitalCrown, offDigitalCrown } from "@zos/interaction";
 import { DEVICE_WIDTH, DEVICE_HEIGHT } from "../layout.js";
-import { treinos as fichas, infoTreino } from "../dados.js";
 import { carregarSessao, limparSessao } from "../sessao.js";
+import { carregarFichas, salvarFichas } from "../ficha.js";
 
 const LIMA = 0xb6ff00;
 const LIMA_PRESS = 0x8fc700;
@@ -15,7 +15,23 @@ const PASSO_MS = 20;
 const ANGULO = 40;
 const RAIO = 72;
 
-const treinos = fichas.map((t) => ({ id: t.id, nome: t.nome, info: infoTreino(t) }));
+const fichas = carregarFichas();
+const treinos = fichas.map((t) => {
+  const n = t.exercicios.length;
+
+  const segundos = t.exercicios.reduce(
+    (soma, e) => soma + e.series * (45 + e.descanso),
+    0
+  );
+
+  return {
+    id: t.id,
+    nome: t.nome,
+    info: `${n} exercícios · ${Math.round(segundos / 60)} min`,
+  };
+});
+
+salvarFichas(fichas);
 
 // Lê o treino em andamento; descarta se a ficha mudou e ele não existe mais
 function sessaoValida() {

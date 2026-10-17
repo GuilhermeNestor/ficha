@@ -6,7 +6,7 @@ import { LocalStorage } from "@zos/storage";
 import * as sensor from "@zos/sensor";
 import * as display from "@zos/display";
 import { DEVICE_WIDTH, DEVICE_HEIGHT } from "../layout.js";
-import { treinos } from "../dados.js";
+import { carregarFichas } from "../ficha.js";
 import { salvarSessao } from "../sessao.js";
 import { vibrar, erroVibracao } from "../vibracao.js";
 import { criarDetector } from "../detector.js";
@@ -41,6 +41,7 @@ const DET = {
 const storage = new LocalStorage();
 const chaveUltimo = (nome) => `ultimo_${nome}`;
 const fmt = (v) => (v % 1 === 0 ? String(v) : v.toFixed(1));
+const treinos = carregarFichas();
 
 function cinza(g) {
   const v = Math.max(0, Math.min(255, Math.round(g)));
