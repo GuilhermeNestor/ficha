@@ -13,7 +13,7 @@ const LIMIAR = 25;
 const ATUALIZA_MS = 20;
 
 const MARGEM_ANEL = 0;
-const ESPESSURA_ANEL = 8;
+const ESPESSURA_ANEL = 10;
 
 Page({
   onInit(params) {

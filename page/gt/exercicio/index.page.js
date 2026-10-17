@@ -21,7 +21,7 @@ const PESO_MAX = 500;
 
 // ---- anel ----
 const MARGEM_ANEL = 0;
-const ESPESSURA_ANEL = 12;
+const ESPESSURA_ANEL = 10;
 
 // ---- roda de peso ----
 const ANGULO = 36;

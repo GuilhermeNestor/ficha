@@ -9,7 +9,7 @@ import { carregarSessao, limparSessao } from "../sessao.js";
 const LIMA = 0xb6ff00;
 const LIMA_PRESS = 0x8fc700;
 const LIMA_ESCURO = 0x4d6600;
-const LIMIAR = 25;   // sensibilidade da coroa (menor = mais sensível; tente 10 se estiver dura)
+const LIMIAR = 5;   // sensibilidade da coroa (menor = mais sensível; tente 10 se estiver dura)
 const DURACAO = 260;
 const PASSO_MS = 20;
 const ANGULO = 40;
@@ -60,6 +60,14 @@ Page({
 
     hmUI.createWidget(hmUI.widget.FILL_RECT, {
       x: 0, y: 0, w: DEVICE_WIDTH, h: DEVICE_HEIGHT, color: 0x000000,
+    });
+
+    // toque no título abre a tela de diagnóstico (remova depois dos testes)
+    hmUI.createWidget(hmUI.widget.BUTTON, {
+      x: px(80), y: px(65), w: DEVICE_WIDTH - px(160), h: px(45),
+      normal_color: 0x000000, press_color: 0x000000,
+      text: "",
+      click_func: () => push({ url: "page/gt/teste/index.page" }),
     });
 
     hmUI.createWidget(hmUI.widget.TEXT, {
@@ -193,7 +201,7 @@ Page({
       descartar = hmUI.createWidget(hmUI.widget.BUTTON, {
         x: px(150), y: px(350), w: DEVICE_WIDTH - px(300), h: px(26), radius: px(13),
         normal_color: 0x000000, press_color: 0x1c1c1e,
-        text: "DESCARTAR", text_size: px(13), color: 0x888888,
+        text: "DESCARTAR", text_size: px(20), color: 0x888888,
         click_func: () => {
           limparSessao();
           replace({ url: "page/gt/home/index.page" });
@@ -209,7 +217,7 @@ Page({
     botao = hmUI.createWidget(hmUI.widget.BUTTON, {
       x: btnX, y: btnY, w: btnW, h: btnH, radius: btnH / 2,
       normal_color: LIMA, press_color: LIMA_PRESS,
-      text: emAndamento() ? "CONTINUAR" : "INICIAR", text_size: px(20), color: 0x000000,
+      text: emAndamento() ? "CONTINUAR" : "INICIAR", text_size: px(30), color: 0x000000,
       click_func: () => {
         if (!emAndamento()) {
           push({
