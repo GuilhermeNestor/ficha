@@ -80,7 +80,7 @@ Page({
       if (timer) clearTimeout(timer);
       try {
         vibrador.stop();
-        vibrador.setMode(sensor.VIBRATOR_SCENE_SHORT_STRONG);
+        vibrador.setMode({ mode: sensor.VIBRATOR_SCENE_SHORT_STRONG });
         vibrador.start();
       } catch (e) {}
       replace({
@@ -134,7 +134,6 @@ Page({
       timer = setTimeout(quadro, Math.max(0, ATUALIZA_MS - gasto));
     };
     quadro();
-    atualizar();
     salvarEstado();
 
     onDigitalCrown({
@@ -147,6 +146,7 @@ Page({
         fim += passo * 5000;
         total = Math.max(5, total + passo * 5);
         atualizar();
+        salvarEstado();
       },
     });
 

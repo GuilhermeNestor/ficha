@@ -29,7 +29,7 @@ Page({
   },
 
   build() {
-    limparSessao();
+    limparSessao();   // treino terminou: apaga o progresso salvo
     const p = this.p;
     const treino = treinos[p.t || 0];
     const totalEx = treino.exercicios.length;
@@ -40,7 +40,7 @@ Page({
     try {
       const v = new sensor.Vibrator();
       v.stop();
-      v.setMode(sensor.VIBRATOR_SCENE_SHORT_STRONG);
+      v.setMode({ mode: sensor.VIBRATOR_SCENE_SHORT_STRONG });
       v.start();
     } catch (e) {}
 

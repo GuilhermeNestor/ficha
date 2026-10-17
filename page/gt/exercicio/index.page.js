@@ -9,7 +9,6 @@ import { DEVICE_WIDTH, DEVICE_HEIGHT } from "../layout.js";
 import { treinos } from "../dados.js";
 import { salvarSessao } from "../sessao.js";
 
-
 const LIMA = 0xb6ff00;
 const LIMA_PRESS = 0x8fc700;
 const TRILHA = 0x1c1c1e;
@@ -17,11 +16,10 @@ const INICIO = -90;
 const LIMIAR_COROA = 25;
 const PASSO_CARGA = 2.5;
 const PESO_MAX = 500;
+
 // ---- anel ----
 const MARGEM_ANEL = 0;
 const ESPESSURA_ANEL = 12;
-
-
 
 // ---- roda de peso ----
 const ANGULO = 36;
@@ -30,11 +28,12 @@ const DURACAO = 220;
 const PASSO_MS = 20;
 
 // ---- detecção de repetição (calibre aqui) ----
-const DEBUG = true;
-const LIMIAR_ALTO = 3.0;
-const LIMIAR_BAIXO = 1.2;
-const INTERVALO_MIN = 900;
-const ATRASO_INICIAL = 1500;
+// O acelerômetro do Zepp OS usa cm/s² (a gravidade é ~981)
+const DEBUG = true;          // mostra movimento e pico no lugar de "DE X REPETIÇÕES"
+const LIMIAR_ALTO = 200;     // movimento mínimo para contar uma rep
+const LIMIAR_BAIXO = 80;     // precisa cair abaixo disso para rearmar
+const INTERVALO_MIN = 900;   // ms mínimos entre duas reps
+const ATRASO_INICIAL = 1500; // ms ignorados ao abrir a tela
 
 const storage = new LocalStorage();
 const chaveUltimo = (nome) => `ultimo_${nome}`;
@@ -102,9 +101,9 @@ Page({
     const vibrar = (forte) => {
       try {
         vibrador.stop();
-        vibrador.setMode(
-          forte ? sensor.VIBRATOR_SCENE_SHORT_STRONG : sensor.VIBRATOR_SCENE_SHORT_LIGHT
-        );
+        vibrador.setMode({
+          mode: forte ? sensor.VIBRATOR_SCENE_SHORT_STRONG : sensor.VIBRATOR_SCENE_SHORT_LIGHT,
+        });
         vibrador.start();
       } catch (e) {}
     };
@@ -218,7 +217,7 @@ Page({
       click_func: () => pular(),
     });
 
-        // ---------- botão +REP (só para teste) ----------
+    // ---------- botão +REP (só para teste) ----------
     const TESTE = true;   // coloque false para esconder quando terminar de testar
     if (TESTE) {
       hmUI.createWidget(hmUI.widget.BUTTON, {
@@ -452,6 +451,7 @@ Page({
         if (!a) return;
         const mag = Math.sqrt(a.x * a.x + a.y * a.y + a.z * a.z);
 
+        // estimativa lenta da gravidade: o que sobra é o movimento do braço
         gravidade = gravidade === null ? mag : gravidade + (mag - gravidade) * 0.05;
         const dinamico = Math.abs(mag - gravidade);
 
@@ -472,7 +472,7 @@ Page({
         }
 
         if (DEBUG) {
-          sub.setProperty(hmUI.prop.TEXT, `mov ${suave.toFixed(1)} · pico ${pico.toFixed(1)}`);
+          sub.setProperty(hmUI.prop.TEXT, `mov ${suave.toFixed(0)} · pico ${pico.toFixed(0)}`);
         }
       });
       acc.start();
