@@ -5,6 +5,7 @@ import { onDigitalCrown, offDigitalCrown } from "@zos/interaction";
 import * as sensor from "@zos/sensor";
 import * as display from "@zos/display";
 import { DEVICE_WIDTH, DEVICE_HEIGHT } from "../layout.js";
+import { salvarSessao } from "../sessao.js";
 
 const AZUL = 0x168cff;
 const INICIO = -90;
@@ -24,7 +25,7 @@ Page({
   build() {
     const p = this.p;
     let total = p.descanso || 60;
-    let fim = Date.now() + total * 1000;
+    let fim = p.fimAbs || (Date.now() + total * 1000);
     let acumulado = 0;
     let timer = null;
     let saiu = false;
@@ -98,6 +99,15 @@ Page({
       click_func: voltar,
     });
 
+    const salvarEstado = () => {
+      salvarSessao({
+        fase: "descanso",
+        t: p.t, ex: p.ex, serie: p.serie, carga: p.carga,
+        inicio: p.inicio, feitas: p.feitas, exs: p.exs,
+        descanso: total, fimAbs: fim,
+      });
+    };
+
     const atualizar = () => {
       const msRestante = Math.max(0, fim - Date.now());
       const segundos = Math.ceil(msRestante / 1000);
@@ -124,6 +134,8 @@ Page({
       timer = setTimeout(quadro, Math.max(0, ATUALIZA_MS - gasto));
     };
     quadro();
+    atualizar();
+    salvarEstado();
 
     onDigitalCrown({
       callback: (key, degree) => {

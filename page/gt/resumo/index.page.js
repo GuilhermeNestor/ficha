@@ -4,6 +4,7 @@ import { replace } from "@zos/router";
 import * as sensor from "@zos/sensor";
 import { DEVICE_WIDTH, DEVICE_HEIGHT } from "../layout.js";
 import { treinos } from "../dados.js";
+import { limparSessao } from "../sessao.js";
 
 const LIMA = 0xb6ff00;
 const LIMA_PRESS = 0x8fc700;
@@ -28,6 +29,7 @@ Page({
   },
 
   build() {
+    limparSessao();
     const p = this.p;
     const treino = treinos[p.t || 0];
     const totalEx = treino.exercicios.length;

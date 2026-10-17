@@ -3,9 +3,9 @@ export const treinos = [
     id: "peito",
     nome: "PEITO",
     exercicios: [
-      { nome: "SUPINO RETO",      series: 4, reps: 0, carga: 20, descanso: 60 },
-      { nome: "SUPINO INCLINADO", series: 3, reps: 0, carga: 16, descanso: 60 },
-      { nome: "TRÍCEPS CORDA",    series: 3, reps: 0, carga: 25, descanso: 45 },
+      { nome: "SUPINO RETO",      series: 4, reps: 10, carga: 20, descanso: 60 },
+      { nome: "SUPINO INCLINADO", series: 3, reps: 10, carga: 16, descanso: 60 },
+      { nome: "TRÍCEPS CORDA",    series: 3, reps: 10, carga: 25, descanso: 45 },
     ],
   },
   {

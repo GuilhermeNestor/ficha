@@ -1,9 +1,10 @@
 import * as hmUI from "@zos/ui";
 import { px } from "@zos/utils";
-import { push } from "@zos/router";
+import { push, replace } from "@zos/router";
 import { onDigitalCrown, offDigitalCrown } from "@zos/interaction";
 import { DEVICE_WIDTH, DEVICE_HEIGHT } from "../layout.js";
 import { treinos as fichas, infoTreino } from "../dados.js";
+import { carregarSessao, limparSessao } from "../sessao.js";
 
 const LIMA = 0xb6ff00;
 const LIMA_PRESS = 0x8fc700;
@@ -16,6 +17,18 @@ const RAIO = 72;
 
 const treinos = fichas.map((t) => ({ id: t.id, nome: t.nome, info: infoTreino(t) }));
 
+// Lê o treino em andamento; descarta se a ficha mudou e ele não existe mais
+function sessaoValida() {
+  const s = carregarSessao();
+  if (!s) return null;
+  const f = fichas[s.t];
+  if (!f || !f.exercicios[s.ex]) {
+    limparSessao();
+    return null;
+  }
+  return s;
+}
+
 function cinza(g) {
   const v = Math.max(0, Math.min(255, Math.round(g)));
   return (v << 16) | (v << 8) | v;
@@ -23,8 +36,9 @@ function cinza(g) {
 
 Page({
   build() {
-    let sel = 0;
-    let pos = 0;
+    const sessao = sessaoValida();
+    let sel = sessao ? sessao.t : 0;
+    let pos = sel;
     let acumulado = 0;
     let timer = null;
 
@@ -50,6 +64,7 @@ Page({
       align_h: hmUI.align.CENTER_H, align_v: hmUI.align.CENTER_V,
     });
 
+    // faixa de foco atrás do treino selecionado
     hmUI.createWidget(hmUI.widget.FILL_RECT, {
       x: centroX - px(115), y: centroY - altLinha / 2 - px(2),
       w: px(230), h: altLinha + px(4), radius: px(22), color: 0x12170a,
@@ -70,9 +85,13 @@ Page({
       align_h: hmUI.align.CENTER_H, align_v: hmUI.align.CENTER_V,
     });
 
+    // linha de info: resumo do treino, ou "EM ANDAMENTO" se houver sessão salva
     const info = hmUI.createWidget(hmUI.widget.TEXT, {
-      x: px(45), y: px(330), w: DEVICE_WIDTH - px(90), h: px(26),
-      text: treinos[0].info, text_size: px(14), color: 0xaaaaaa,
+      x: px(45), y: sessao ? px(322) : px(330), w: DEVICE_WIDTH - px(90), h: px(26),
+      text: sessao
+        ? `EM ANDAMENTO · ${fichas[sessao.t].exercicios[sessao.ex].nome}`
+        : treinos[sel].info,
+      text_size: px(14), color: 0xaaaaaa,
       align_h: hmUI.align.CENTER_H, align_v: hmUI.align.CENTER_V,
     });
 
@@ -137,17 +156,31 @@ Page({
 
     onDigitalCrown({
       callback: (key, degree) => {
+        if (sessao) return;   // com treino em andamento a roda fica travada
         acumulado += degree;
         if (acumulado >= LIMIAR) { acumulado = 0; irPara(sel + 1); }
         else if (acumulado <= -LIMIAR) { acumulado = 0; irPara(sel - 1); }
       },
     });
 
-    // Botão INICIAR
+    // ---------- botão principal ----------
     const btnX = px(110);
     const btnY = px(385);
     const btnW = DEVICE_WIDTH - px(220);
     const btnH = px(56);
+
+    // botão pequeno para descartar o treino em andamento
+    if (sessao) {
+      hmUI.createWidget(hmUI.widget.BUTTON, {
+        x: px(150), y: px(350), w: DEVICE_WIDTH - px(300), h: px(26), radius: px(13),
+        normal_color: 0x000000, press_color: 0x1c1c1e,
+        text: "DESCARTAR", text_size: px(13), color: 0x888888,
+        click_func: () => {
+          limparSessao();
+          replace({ url: "page/gt/home/index.page" });
+        },
+      });
+    }
 
     hmUI.createWidget(hmUI.widget.STROKE_RECT, {
       x: btnX - px(6), y: btnY - px(6), w: btnW + px(12), h: btnH + px(12),
@@ -157,15 +190,29 @@ Page({
     hmUI.createWidget(hmUI.widget.BUTTON, {
       x: btnX, y: btnY, w: btnW, h: btnH, radius: btnH / 2,
       normal_color: LIMA, press_color: LIMA_PRESS,
-      text: "INICIAR", text_size: px(20), color: 0x000000,
+      text: sessao ? "CONTINUAR" : "INICIAR", text_size: px(20), color: 0x000000,
       click_func: () => {
-        push({
-          url: "page/gt/exercicio/index.page",
-          params: JSON.stringify({
-            t: sel, ex: 0, serie: 1,
-            inicio: Date.now(), feitas: 0, exs: 0,
-          }),
-        });
+        if (!sessao) {
+          push({
+            url: "page/gt/exercicio/index.page",
+            params: JSON.stringify({
+              t: sel, ex: 0, serie: 1,
+              inicio: Date.now(), feitas: 0, exs: 0,
+            }),
+          });
+          return;
+        }
+        if (sessao.fase === "descanso") {
+          push({
+            url: "page/gt/descanso/index.page",
+            params: JSON.stringify(sessao),
+          });
+        } else {
+          push({
+            url: "page/gt/exercicio/index.page",
+            params: JSON.stringify(sessao),
+          });
+        }
       },
     });
 

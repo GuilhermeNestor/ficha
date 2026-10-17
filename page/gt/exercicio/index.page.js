@@ -7,6 +7,8 @@ import * as sensor from "@zos/sensor";
 import * as display from "@zos/display";
 import { DEVICE_WIDTH, DEVICE_HEIGHT } from "../layout.js";
 import { treinos } from "../dados.js";
+import { salvarSessao } from "../sessao.js";
+
 
 const LIMA = 0xb6ff00;
 const LIMA_PRESS = 0x8fc700;
@@ -15,10 +17,11 @@ const INICIO = -90;
 const LIMIAR_COROA = 25;
 const PASSO_CARGA = 2.5;
 const PESO_MAX = 500;
-
 // ---- anel ----
 const MARGEM_ANEL = 0;
 const ESPESSURA_ANEL = 12;
+
+
 
 // ---- roda de peso ----
 const ANGULO = 36;
@@ -52,6 +55,7 @@ Page({
     this.inicio = p.inicio || Date.now();
     this.feitas = p.feitas || 0;
     this.exs = p.exs || 0;
+    this.repsIni = p.reps || 0;
 
     const ex = treinos[this.tI].exercicios[this.exI];
 
@@ -77,7 +81,7 @@ Page({
     const exs = this.exs;
     let carga = this.carga;
 
-    let repeticoes = 0;
+    let repeticoes = this.repsIni || 0;
     let acumulado = 0;
     let finalizando = false;
     let modoRoda = false;
@@ -214,6 +218,17 @@ Page({
       click_func: () => pular(),
     });
 
+        // ---------- botão +REP (só para teste) ----------
+    const TESTE = true;   // coloque false para esconder quando terminar de testar
+    if (TESTE) {
+      hmUI.createWidget(hmUI.widget.BUTTON, {
+        x: px(52), y: px(148), w: px(64), h: px(64), radius: px(32),
+        normal_color: 0x202020, press_color: 0x353535,
+        text: "+REP", text_size: px(15), color: LIMA,
+        click_func: () => contarRep(),
+      });
+    }
+
     // =====================================================
     //  RODA DE PESO
     // =====================================================
@@ -343,6 +358,7 @@ Page({
         carga = Math.max(0, valorDe(alvo));
         cargaTxt.setProperty(hmUI.prop.TEXT, fmt(carga));
       }
+      salvarEstado();
       mostrarOverlay(false);
       modoRoda = false;
       acumulado = 0;
@@ -353,6 +369,15 @@ Page({
     // =====================================================
     const salvarPeso = () => {
       try { storage.setItem(chaveUltimo(ex.nome), String(carga)); } catch (e) {}
+    };
+
+    const salvarEstado = () => {
+      salvarSessao({
+        fase: "exercicio",
+        t: tI, ex: exI, serie, carga,
+        inicio, feitas, exs,
+        reps: repeticoes,
+      });
     };
 
     // vai para o próximo exercício ou, se for o último, para o resumo
@@ -386,20 +411,18 @@ Page({
       if (finalizando) return;
       finalizando = true;
       vibrar(true);
-      setTimeout(() => {
-        if (!ultimaSerie) {
-          replace({
-            url: "page/gt/descanso/index.page",
-            params: JSON.stringify({
-              t: tI, ex: exI, serie: serie + 1, carga, descanso: ex.descanso,
-              inicio, feitas: feitas + 1, exs,
-            }),
-          });
-        } else {
-          salvarPeso();
-          proximo(feitas + 1, exs + 1);
-        }
-      }, 700);
+      if (!ultimaSerie) {
+        replace({
+          url: "page/gt/descanso/index.page",
+          params: JSON.stringify({
+            t: tI, ex: exI, serie: serie + 1, carga, descanso: ex.descanso,
+            inicio, feitas: feitas + 1, exs,
+          }),
+        });
+      } else {
+        salvarPeso();
+        proximo(feitas + 1, exs + 1);
+      }
     };
 
     const contarRep = () => {
@@ -413,6 +436,7 @@ Page({
       anel.setProperty(hmUI.prop.MORE, {
         end_angle: INICIO + 360 * (repeticoes / ex.reps),
       });
+      if (repeticoes < ex.reps) salvarEstado();
       if (repeticoes >= ex.reps) concluirSerie();
       else vibrar(false);
     };
@@ -464,6 +488,18 @@ Page({
         else if (acumulado <= -LIMIAR_COROA) { acumulado = 0; irParaRoda(alvo - 1); }
       },
     });
+
+    // restaura a contagem se o treino foi retomado no meio da série
+    if (repeticoes > 0) {
+      contador.setProperty(
+        hmUI.prop.TEXT,
+        repeticoes < 10 ? "0" + repeticoes : "" + repeticoes
+      );
+      anel.setProperty(hmUI.prop.MORE, {
+        end_angle: INICIO + 360 * (repeticoes / ex.reps),
+      });
+    }
+    salvarEstado();
 
     this.limpar = () => {
       if (timerRoda) clearInterval(timerRoda);
