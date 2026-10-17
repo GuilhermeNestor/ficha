@@ -2,10 +2,10 @@ import * as hmUI from "@zos/ui";
 import { px } from "@zos/utils";
 import { replace } from "@zos/router";
 import { onDigitalCrown, offDigitalCrown } from "@zos/interaction";
-import * as sensor from "@zos/sensor";
 import * as display from "@zos/display";
 import { DEVICE_WIDTH, DEVICE_HEIGHT } from "../layout.js";
 import { salvarSessao } from "../sessao.js";
+import { vibrar } from "../vibracao.js";
 
 const AZUL = 0x168cff;
 const INICIO = -90;
@@ -34,8 +34,6 @@ Page({
 
     try { display.setPageBrightTime({ brightTime: 300000 }); } catch (e) {}
     try { display.pauseDropWristScreenOff({ duration: 300000 }); } catch (e) {}
-
-    const vibrador = new sensor.Vibrator();
 
     hmUI.createWidget(hmUI.widget.FILL_RECT, {
       x: 0, y: 0, w: DEVICE_WIDTH, h: DEVICE_HEIGHT, color: 0x000000,
@@ -78,11 +76,7 @@ Page({
       if (saiu) return;
       saiu = true;
       if (timer) clearTimeout(timer);
-      try {
-        vibrador.stop();
-        vibrador.setMode({ mode: sensor.VIBRATOR_SCENE_SHORT_STRONG });
-        vibrador.start();
-      } catch (e) {}
+      vibrar("fim");
       replace({
         url: "page/gt/exercicio/index.page",
         params: JSON.stringify({

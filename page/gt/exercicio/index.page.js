@@ -8,6 +8,8 @@ import * as display from "@zos/display";
 import { DEVICE_WIDTH, DEVICE_HEIGHT } from "../layout.js";
 import { treinos } from "../dados.js";
 import { salvarSessao } from "../sessao.js";
+import { vibrar, erroVibracao } from "../vibracao.js";
+import { criarDetector } from "../detector.js";
 
 const LIMA = 0xb6ff00;
 const LIMA_PRESS = 0x8fc700;
@@ -28,12 +30,13 @@ const DURACAO = 220;
 const PASSO_MS = 20;
 
 // ---- detecção de repetição (calibre aqui) ----
-// O acelerômetro do Zepp OS usa cm/s² (a gravidade é ~981)
-const DEBUG = true;          // mostra movimento e pico no lugar de "DE X REPETIÇÕES"
-const LIMIAR_ALTO = 200;     // movimento mínimo para contar uma rep
-const LIMIAR_BAIXO = 80;     // precisa cair abaixo disso para rearmar
-const INTERVALO_MIN = 900;   // ms mínimos entre duas reps
-const ATRASO_INICIAL = 1500; // ms ignorados ao abrir a tela
+const DEBUG = true;   // mostra Hz, amplitude e limiar no lugar de "DE X REPETIÇÕES"
+const DET = {
+  deltaMin: 60,        // MENOR = mais sensível (movimentos sutis). Tente 30-40 se perder reps
+  fatorDelta: 0.35,    // limiar adaptativo (fração da amplitude média)
+  intervaloMin: 700,   // ms mínimos entre reps. Aumente se contar duas vezes
+  atrasoInicial: 1200, // ms ignorados ao abrir a tela
+};
 
 const storage = new LocalStorage();
 const chaveUltimo = (nome) => `ultimo_${nome}`;
@@ -84,11 +87,9 @@ Page({
     let acumulado = 0;
     let finalizando = false;
     let modoRoda = false;
-    let armado = true;
-    let suave = 0;
-    let pico = 0;
-    let ultimaRep = 0;
-    const abriuEm = Date.now();
+    let ultimoDebug = 0;
+
+    const det = criarDetector(DET);
 
     const centroX = DEVICE_WIDTH / 2;
     const ultimaSerie = serie >= ex.series;
@@ -96,17 +97,6 @@ Page({
 
     try { display.setPageBrightTime({ brightTime: 300000 }); } catch (e) {}
     try { display.pauseDropWristScreenOff({ duration: 300000 }); } catch (e) {}
-
-    const vibrador = new sensor.Vibrator();
-    const vibrar = (forte) => {
-      try {
-        vibrador.stop();
-        vibrador.setMode({
-          mode: forte ? sensor.VIBRATOR_SCENE_SHORT_STRONG : sensor.VIBRATOR_SCENE_SHORT_LIGHT,
-        });
-        vibrador.start();
-      } catch (e) {}
-    };
 
     // ---------- fundo ----------
     hmUI.createWidget(hmUI.widget.FILL_RECT, {
@@ -163,7 +153,7 @@ Page({
     });
 
     const sub = hmUI.createWidget(hmUI.widget.TEXT, {
-      x: px(100), y: px(212), w: DEVICE_WIDTH - px(200), h: px(26),
+      x: px(70), y: px(212), w: DEVICE_WIDTH - px(140), h: px(26),
       text: `DE ${ex.reps} REPETIÇÕES`, text_size: px(14), color: 0xaaaaaa,
       align_h: hmUI.align.CENTER_H, align_v: hmUI.align.CENTER_V,
     });
@@ -217,7 +207,7 @@ Page({
       click_func: () => pular(),
     });
 
-    // ---------- botão +REP (só para teste) ----------
+    // ---------- botões de teste ----------
     const TESTE = true;   // coloque false para esconder quando terminar de testar
     if (TESTE) {
       hmUI.createWidget(hmUI.widget.BUTTON, {
@@ -225,6 +215,13 @@ Page({
         normal_color: 0x202020, press_color: 0x353535,
         text: "+REP", text_size: px(15), color: LIMA,
         click_func: () => contarRep(),
+      });
+      // testa a vibração (série concluída)
+      hmUI.createWidget(hmUI.widget.BUTTON, {
+        x: px(52), y: px(222), w: px(64), h: px(40), radius: px(20),
+        normal_color: 0x202020, press_color: 0x353535,
+        text: "VIB", text_size: px(14), color: 0xffffff,
+        click_func: () => vibrar("serie"),
       });
     }
 
@@ -361,6 +358,7 @@ Page({
       mostrarOverlay(false);
       modoRoda = false;
       acumulado = 0;
+      det.reiniciar(Date.now());   // dá um tempo para o braço voltar à posição
     };
 
     // =====================================================
@@ -409,7 +407,7 @@ Page({
     const concluirSerie = () => {
       if (finalizando) return;
       finalizando = true;
-      vibrar(true);
+      vibrar("serie");
       if (!ultimaSerie) {
         replace({
           url: "page/gt/descanso/index.page",
@@ -437,46 +435,37 @@ Page({
       });
       if (repeticoes < ex.reps) salvarEstado();
       if (repeticoes >= ex.reps) concluirSerie();
-      else vibrar(false);
+      else vibrar("rep");
     };
 
     // ---------- acelerômetro ----------
     let acc = null;
     try {
       acc = new sensor.Accelerometer();
-      let gravidade = null;
+      try { acc.setFreqMode(sensor.FREQ_MODE_HIGH); } catch (e) {}
 
       acc.onChange(() => {
         const a = acc.getCurrent();
         if (!a) return;
-        const mag = Math.sqrt(a.x * a.x + a.y * a.y + a.z * a.z);
-
-        // estimativa lenta da gravidade: o que sobra é o movimento do braço
-        gravidade = gravidade === null ? mag : gravidade + (mag - gravidade) * 0.05;
-        const dinamico = Math.abs(mag - gravidade);
-
-        suave += (dinamico - suave) * 0.3;
-        if (suave > pico) pico = suave;
-
-        if (modoRoda) return;
+        if (modoRoda || finalizando) return;
 
         const agora = Date.now();
-        if (agora - abriuEm < ATRASO_INICIAL) return;
+        if (det.feed(a.x, a.y, a.z, agora)) contarRep();
 
-        if (armado && suave > LIMIAR_ALTO && agora - ultimaRep > INTERVALO_MIN) {
-          armado = false;
-          ultimaRep = agora;
-          contarRep();
-        } else if (!armado && suave < LIMIAR_BAIXO) {
-          armado = true;
-        }
-
-        if (DEBUG) {
-          sub.setProperty(hmUI.prop.TEXT, `mov ${suave.toFixed(0)} · pico ${pico.toFixed(0)}`);
+        if (DEBUG && agora - ultimoDebug > 250) {
+          ultimoDebug = agora;
+          const i = det.info();
+          const erro = erroVibracao();
+          sub.setProperty(
+            hmUI.prop.TEXT,
+            `${i.hz}Hz amp${i.amp} Δ${i.delta}` + (erro ? ` V:${erro}` : "")
+          );
         }
       });
       acc.start();
-    } catch (e) {}
+    } catch (e) {
+      console.log("ERRO ACELEROMETRO:", e && e.message ? e.message : e);
+    }
     this.acc = acc;
 
     // ---------- coroa: só funciona com a roda aberta ----------
