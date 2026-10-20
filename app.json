@@ -10,7 +10,7 @@
     },
     "icon": "icon.png",
     "vender": "zepp",
-    "description": "hello world app"
+    "description": "Ficha de treino offline com resultados para sincronização"
   },
   "permissions": [
     "data:os.device.info",
@@ -33,9 +33,12 @@
             "page/gt/home/index.page",
             "page/gt/exercicio/index.page",
             "page/gt/descanso/index.page",
-            "page/gt/resumo/index.page"
-
+            "page/gt/resumo/index.page",
+            "page/gt/sincronizacao/index.page"
           ]
+        },
+        "app-side": {
+          "path": "app-side/index"
         }
       },
       "platforms": [

@@ -1,56 +1,64 @@
-
-import { LocalStorage } from "@zos/storage";
+import { ler, gravar } from "./armazenamento.js";
 
 const CHAVE = "sessao_treino";
 const VALIDADE_MS = 6 * 60 * 60 * 1000;
 
-const storage = new LocalStorage();
-
 export function salvarSessao(dados) {
-  try {
-    const sessao = {
-      ...dados,
-      atualizado: Date.now(),
-    };
+  const atual = ler(CHAVE, null);
 
-    storage.setItem(CHAVE, JSON.stringify(sessao));
-  } catch (e) {
-    console.log("Erro ao salvar sessão:", e);
+  if (
+    atual &&
+    atual.fase === "finalizacao" &&
+    dados.fase !== "finalizacao"
+  ) {
+    throw new Error("Finalize o resultado pendente primeiro");
   }
+
+  const id =
+    dados.id ||
+    (atual && atual.inicio === dados.inicio && atual.id) ||
+    `treino_${dados.inicio}_${dados.t}`;
+
+  const sessao = {
+    ...dados,
+    id,
+    atualizado: Date.now(),
+  };
+
+  gravar(CHAVE, sessao);
+
+  return sessao;
 }
 
 export function limparSessao() {
-  try {
-    storage.removeItem(CHAVE);
-  } catch (e) {
-    try {
-      storage.setItem(CHAVE, "");
-    } catch (erro) {
-      console.log("Erro ao limpar sessão:", erro);
-    }
-  }
+  gravar(CHAVE, null);
 }
 
 export function carregarSessao() {
-  try {
-    const bruto = storage.getItem(CHAVE);
+  const s = ler(CHAVE, null);
 
-    if (!bruto) return null;
+  if (!s) return null;
 
-    const sessao = JSON.parse(bruto);
+  if (!s.atualizado || !Number.isFinite(s.inicio) || !s.fase) {
+    throw new Error("Sessão inválida; dados preservados");
+  }
 
-    if (
-      !sessao ||
-      !sessao.atualizado ||
-      Date.now() - sessao.atualizado > VALIDADE_MS
-    ) {
-      limparSessao();
-      return null;
-    }
-
-    return sessao;
-  } catch (e) {
-    console.log("Erro ao carregar sessão:", e);
+  if (
+    s.fase !== "finalizacao" &&
+    Date.now() - s.atualizado > VALIDADE_MS
+  ) {
+    limparSessao();
     return null;
   }
+
+  return s;
+}
+
+export function prepararFinalizacao(params, resultado) {
+  return salvarSessao({
+    ...params,
+    id: resultado.id,
+    fase: "finalizacao",
+    resultado,
+  });
 }

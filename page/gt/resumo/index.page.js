@@ -4,7 +4,13 @@ import { replace } from "@zos/router";
 import * as sensor from "@zos/sensor";
 import { DEVICE_WIDTH, DEVICE_HEIGHT } from "../layout.js";
 import { carregarFichas } from "../ficha.js";
-import { limparSessao } from "../sessao.js";
+import {
+  limparSessao,
+  carregarSessao,
+  prepararFinalizacao,
+} from "../sessao.js";
+import { salvarResultado, criarResultado } from "../resultados.js";
+import { aviso } from "../aviso.js";
 
 const LIMA = 0xb6ff00;
 const LIMA_PRESS = 0x8fc700;
@@ -27,6 +33,7 @@ function formatarTempo(ms) {
 Page({
   onInit(params) {
     let p = {};
+
     try {
       p = JSON.parse(params);
     } catch (e) {}
@@ -35,16 +42,50 @@ Page({
   },
 
   build() {
-    const p = this.p;
-    const treinos = carregarFichas();
-    const treino = treinos[p.t || 0];
-    const totalEx = treino.exercicios.length;
-    const duracao = (p.fim || Date.now()) - (p.inicio || Date.now());
+    let p = this.p;
+    let resultado;
+
+    try {
+      const sessao = carregarSessao();
+
+      if (sessao && sessao.fase === "finalizacao") {
+        p = sessao;
+      }
+
+      if (p.resultado) {
+        resultado = p.resultado;
+      } else {
+        const ficha = carregarFichas()[p.t || 0];
+
+        p = { ...p, fim: p.fim || Date.now() };
+
+        resultado = criarResultado(p, ficha);
+        prepararFinalizacao(p, resultado);
+      }
+
+      salvarResultado(resultado);
+      limparSessao();
+    } catch (e) {
+      aviso(e.message, () =>
+        replace({
+          url: "page/gt/resumo/index.page",
+          params: JSON.stringify(p),
+        })
+      );
+      return;
+    }
+
+    const treino = { nome: resultado.fichaNome };
+    const totalEx = resultado.cargas.length;
+    const duracao = resultado.duracaoMs;
     const centroX = DEVICE_WIDTH / 2;
 
-    limparSessao();
+    p = {
+      ...p,
+      feitas: resultado.seriesConcluidas,
+      exs: resultado.exerciciosConcluidos,
+    };
 
-    // Vibra ao concluir.
     try {
       const v = new sensor.Vibrator();
       v.stop();
@@ -52,20 +93,15 @@ Page({
       v.start();
     } catch (e) {}
 
-    // Fundo.
     hmUI.createWidget(hmUI.widget.FILL_RECT, {
-      x: 0,
-      y: 0,
-      w: DEVICE_WIDTH,
-      h: DEVICE_HEIGHT,
+      x: 0, y: 0, w: DEVICE_WIDTH, h: DEVICE_HEIGHT,
       color: 0x000000,
     });
 
-    // Anel completo.
     const margem = px(MARGEM_ANEL);
+
     hmUI.createWidget(hmUI.widget.ARC, {
-      x: margem,
-      y: margem,
+      x: margem, y: margem,
       w: DEVICE_WIDTH - margem * 2,
       h: DEVICE_HEIGHT - margem * 2,
       line_width: px(ESPESSURA_ANEL),
@@ -75,108 +111,91 @@ Page({
     });
 
     hmUI.createWidget(hmUI.widget.TEXT, {
-      x: px(60),
-      y: px(62),
-      w: DEVICE_WIDTH - px(120),
-      h: px(30),
+      x: px(60), y: px(62),
+      w: DEVICE_WIDTH - px(120), h: px(30),
       text: "TREINO CONCLUÍDO",
-      text_size: px(18),
-      color: LIMA,
+      text_size: px(18), color: LIMA,
       align_h: hmUI.align.CENTER_H,
       align_v: hmUI.align.CENTER_V,
     });
 
     hmUI.createWidget(hmUI.widget.TEXT, {
-      x: px(60),
-      y: px(94),
-      w: DEVICE_WIDTH - px(120),
-      h: px(34),
+      x: px(60), y: px(94),
+      w: DEVICE_WIDTH - px(120), h: px(34),
       text: treino.nome,
-      text_size: px(24),
-      color: 0xffffff,
+      text_size: px(24), color: 0xffffff,
       align_h: hmUI.align.CENTER_H,
       align_v: hmUI.align.CENTER_V,
     });
 
-    // Tempo total.
     hmUI.createWidget(hmUI.widget.TEXT, {
-      x: px(60),
-      y: px(145),
-      w: DEVICE_WIDTH - px(120),
-      h: px(90),
+      x: px(60), y: px(145),
+      w: DEVICE_WIDTH - px(120), h: px(90),
       text: formatarTempo(duracao),
-      text_size: px(72),
-      color: 0xffffff,
+      text_size: px(72), color: 0xffffff,
       align_h: hmUI.align.CENTER_H,
       align_v: hmUI.align.CENTER_V,
     });
 
     hmUI.createWidget(hmUI.widget.TEXT, {
-      x: px(60),
-      y: px(232),
-      w: DEVICE_WIDTH - px(120),
-      h: px(24),
+      x: px(60), y: px(232),
+      w: DEVICE_WIDTH - px(120), h: px(24),
       text: "TEMPO TOTAL",
-      text_size: px(13),
-      color: 0x888888,
+      text_size: px(13), color: 0x888888,
       align_h: hmUI.align.CENTER_H,
       align_v: hmUI.align.CENTER_V,
     });
 
-    // Linha separadora.
     hmUI.createWidget(hmUI.widget.FILL_RECT, {
-      x: centroX - px(1),
-      y: px(272),
-      w: px(2),
-      h: px(60),
+      x: centroX - px(1), y: px(272),
+      w: px(2), h: px(60),
       color: 0x2a2a2c,
     });
 
     const coluna = (x, valor, rotulo) => {
       hmUI.createWidget(hmUI.widget.TEXT, {
-        x,
-        y: px(268),
-        w: px(120),
-        h: px(44),
-        text: valor,
-        text_size: px(34),
-        color: 0xffffff,
+        x, y: px(268), w: px(120), h: px(44),
+        text: valor, text_size: px(34), color: 0xffffff,
         align_h: hmUI.align.CENTER_H,
         align_v: hmUI.align.CENTER_V,
       });
 
       hmUI.createWidget(hmUI.widget.TEXT, {
-        x,
-        y: px(312),
-        w: px(120),
-        h: px(22),
-        text: rotulo,
-        text_size: px(13),
-        color: 0x888888,
+        x, y: px(312), w: px(120), h: px(22),
+        text: rotulo, text_size: px(13), color: 0x888888,
         align_h: hmUI.align.CENTER_H,
         align_v: hmUI.align.CENTER_V,
       });
     };
 
-    coluna(centroX - px(150), String(p.feitas || 0), "SÉRIES");
+    coluna(
+      centroX - px(150),
+      String(p.feitas || 0),
+      "SÉRIES"
+    );
+
     coluna(
       centroX + px(30),
       `${p.exs || 0}/${totalEx}`,
       "EXERCÍCIOS"
     );
 
-    // Botão.
+    hmUI.createWidget(hmUI.widget.TEXT, {
+      x: px(50), y: px(340),
+      w: DEVICE_WIDTH - px(100), h: px(24),
+      text: "SALVO · SINCRONIZAÇÃO PENDENTE",
+      text_size: px(13), color: LIMA,
+      align_h: hmUI.align.CENTER_H,
+      align_v: hmUI.align.CENTER_V,
+    });
+
     hmUI.createWidget(hmUI.widget.BUTTON, {
-      x: px(110),
-      y: px(372),
-      w: DEVICE_WIDTH - px(220),
-      h: px(54),
+      x: px(110), y: px(372),
+      w: DEVICE_WIDTH - px(220), h: px(54),
       radius: px(27),
-      normal_color: LIMA,
-      press_color: LIMA_PRESS,
+      normal_color: LIMA, press_color: LIMA_PRESS,
       text: "CONCLUIR",
-      text_size: px(18),
-      color: 0x000000,
+      text_size: px(18), color: 0x000000,
       click_func: () =>
         replace({ url: "page/gt/home/index.page" }),
     });
