@@ -21,6 +21,10 @@ export function salvarSessao(dados) {
 
   const sessao = {
     ...dados,
+    seriesRealizadas:
+      dados.seriesRealizadas ||
+      (atual && atual.id === id && atual.seriesRealizadas) ||
+      [],
     id,
     atualizado: Date.now(),
   };

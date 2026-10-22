@@ -1,718 +1,857 @@
 import * as hmUI from "@zos/ui";
 import { px } from "@zos/utils";
 import { replace } from "@zos/router";
-import { onDigitalCrown, offDigitalCrown } from "@zos/interaction";
-import { ultimaCarga, salvarCarga } from "../cargas.js";
-import { criarResultado } from "../resultados.js";
 import {
-  carregarSessao,
-  prepararFinalizacao,
-  salvarSessao,
-} from "../sessao.js";
-import { aviso } from "../aviso.js";
+  onDigitalCrown,
+  offDigitalCrown,
+  onKey,
+  offKey,
+  KEY_HOME,
+  KEY_EVENT_CLICK,
+} from "@zos/interaction";
 import * as sensor from "@zos/sensor";
 import * as display from "@zos/display";
-import { DEVICE_WIDTH, DEVICE_HEIGHT } from "../layout.js";
+import {
+  DEVICE_WIDTH,
+  DEVICE_HEIGHT,
+} from "../layout.js";
 import { carregarFichas } from "../ficha.js";
-import { vibrar, erroVibracao } from "../vibracao.js";
-import { criarDetector } from "../detector.js";
+import {
+  ultimaCarga,
+  salvarCarga,
+} from "../cargas.js";
+import {
+  carregarSessao,
+  salvarSessao,
+  prepararFinalizacao,
+} from "../sessao.js";
+import { criarResultado } from "../resultados.js";
+import {
+  criarDetectorAdaptativo,
+} from "../detector-adaptativo.js";
+import { vibrar } from "../vibracao.js";
+import { aviso } from "../aviso.js";
 
 const LIMA = 0xb6ff00;
-const LIMA_PRESS = 0x8fc700;
-const TRILHA = 0x1c1c1e;
-const INICIO = -90;
-const LIMIAR_COROA = 25;
-const PASSO_CARGA = 2.5;
-const PESO_MAX = 500;
-
-const MARGEM_ANEL = 0;
-const ESPESSURA_ANEL = 10;
-
-const ANGULO = 36;
-const RAIO = 85;
-const DURACAO = 220;
-const PASSO_MS = 20;
-
-const DEBUG = true;
-
-const DET = {
-  deltaMin: 60,
-  fatorDelta: 0.35,
-  intervaloMin: 700,
-  atrasoInicial: 1200,
-};
 
 const fmt = (v) =>
-  v % 1 === 0 ? String(v) : v.toFixed(1);
-
-function cinza(g) {
-  const v = Math.max(0, Math.min(255, Math.round(g)));
-  return (v << 16) | (v << 8) | v;
-}
+  Number.isInteger(v)
+    ? String(v)
+    : v.toFixed(1);
 
 Page({
   onInit(params) {
-    let p = {};
     try {
-      p = JSON.parse(params);
-    } catch (e) {}
-
-    this.tI = p.t || 0;
-    this.exI = p.ex || 0;
-    this.serie = p.serie || 1;
-    this.inicio = p.inicio || Date.now();
-    this.feitas = p.feitas || 0;
-    this.exs = p.exs || 0;
-    this.repsIni = p.reps || 0;
-
-    try {
-      this.treinos = carregarFichas();
-
-      const treinos = this.treinos;
-      const sessao = carregarSessao();
-
-      this.sessaoId =
-        p.id ||
-        (sessao && sessao.id) ||
-        `treino_${this.inicio}_${this.tI}`;
-
-      if (sessao && sessao.fase === "finalizacao") {
-        this.finalizacao = sessao;
-        return;
-      }
-
-      const ex = treinos[this.tI].exercicios[this.exI];
-      const ultimo = ultimaCarga(treinos[this.tI], ex);
-
-      this.ultimo = ultimo;
-      this.carga = p.carga !== undefined ? p.carga : ultimo;
-    } catch (e) {
-      this.erro = e.message;
+      this.p = JSON.parse(params) || {};
+    } catch (_) {
+      this.p = {};
     }
   },
 
   build() {
-    if (this.erro) {
-      aviso(this.erro);
-      return;
-    }
+    let p = this.p;
+    let ficha;
+    let ex;
 
-    if (this.finalizacao) {
-      replace({
-        url: "page/gt/resumo/index.page",
-        params: JSON.stringify(this.finalizacao),
+    try {
+      const s = carregarSessao();
+
+      if (s && s.fase === "finalizacao") {
+        replace({
+          url: "page/gt/resumo/index.page",
+          params: JSON.stringify(s),
+        });
+        return;
+      }
+
+      if (
+        s &&
+        s.fase === "exercicio" &&
+        s.inicio === p.inicio &&
+        s.t === p.t &&
+        s.ex === p.ex &&
+        s.serie === p.serie
+      ) {
+        p = s;
+      }
+
+      ficha = carregarFichas()[p.t || 0];
+      ex = ficha.exercicios[p.ex || 0];
+
+      if (!ex) {
+        throw new Error("Exercício indisponível");
+      }
+
+      p = {
+        ...p,
+        t: p.t || 0,
+        ex: p.ex || 0,
+        serie: p.serie || 1,
+        inicio: p.inicio || Date.now(),
+        feitas: p.feitas || 0,
+        exs: p.exs || 0,
+      };
+
+      p = salvarSessao({
+        ...p,
+        fase: "exercicio",
       });
+    } catch (e) {
+      aviso(e.message);
       return;
     }
 
-    const treinos = this.treinos;
-    const tI = this.tI;
-    const exI = this.exI;
-    const lista = treinos[tI].exercicios;
-    const ex = lista[exI];
-    const serie = this.serie;
-    const ultimo = this.ultimo;
-    const inicio = this.inicio;
-    const feitas = this.feitas;
-    const exs = this.exs;
+    let carga;
+    let anterior;
 
-    let carga = this.carga;
-    let repeticoes = this.repsIni || 0;
+    try {
+      anterior = ultimaCarga(ficha, ex);
+      carga = p.carga === undefined
+        ? anterior
+        : p.carga;
+    } catch (e) {
+      aviso(e.message);
+      return;
+    }
+
+    let reps = p.reps || 0;
+    let bloqueado = false;
+    let editando = false;
+    let destruido = false;
     let acumulado = 0;
-    let finalizando = false;
-    let modoRoda = false;
-    let ultimoDebug = 0;
+    let teclaCoroa = KEY_HOME;
+    let timerRoda = null;
+    let ultimoStatus = 0;
 
-    const det = criarDetector(DET);
-    const centroX = DEVICE_WIDTH / 2;
-    const ultimaSerie = serie >= ex.series;
-    const ultimoEx = exI >= lista.length - 1;
+    const salvo = (p.modelosMovimento || []).find(
+      (m) => m.exercicioId === ex.id
+    );
+
+    const det = criarDetectorAdaptativo({
+      modelo: salvo && salvo.modelo,
+    });
+
+    const guardarModelo = () => {
+      const lista = (p.modelosMovimento || []).filter(
+        (m) => m.exercicioId !== ex.id
+      );
+
+      const modelo = det.exportarModelo();
+
+      if (modelo) {
+        lista.push({
+          exercicioId: ex.id,
+          modelo,
+        });
+      }
+
+      return lista;
+    };
+
+    const texto = (
+      x, y, w, h, text, size, color = 0xffffff
+    ) => hmUI.createWidget(hmUI.widget.TEXT, {
+      x: px(x),
+      y: px(y),
+      w: px(w),
+      h: px(h),
+      text,
+      text_size: px(size),
+      color,
+      text_style: hmUI.text_style.ELLIPSIS,
+      align_h: hmUI.align.CENTER_H,
+      align_v: hmUI.align.CENTER_V,
+    });
+
+    const botao = (
+      x, y, w, h, text, click_func, verde = false
+    ) => hmUI.createWidget(hmUI.widget.BUTTON, {
+      x: px(x),
+      y: px(y),
+      w: px(w),
+      h: px(h),
+      radius: px(24),
+      text,
+      text_size: px(22),
+      normal_color: verde ? LIMA : 0x202020,
+      press_color: verde ? 0x8fc700 : 0x353535,
+      color: verde ? 0x000000 : 0xffffff,
+      click_func,
+    });
 
     try {
-      display.setPageBrightTime({ brightTime: 300000 });
-    } catch (e) {}
+      display.setPageBrightTime({
+        brightTime: 300000,
+      });
 
-    try {
-      display.pauseDropWristScreenOff({ duration: 300000 });
-    } catch (e) {}
+      display.pauseDropWristScreenOff({
+        duration: 300000,
+      });
+    } catch (_) {}
 
     hmUI.createWidget(hmUI.widget.FILL_RECT, {
-      x: 0, y: 0, w: DEVICE_WIDTH, h: DEVICE_HEIGHT,
+      x: 0,
+      y: 0,
+      w: DEVICE_WIDTH,
+      h: DEVICE_HEIGHT,
       color: 0x000000,
     });
 
-    const margem = px(MARGEM_ANEL);
-
-    const box = {
-      x: margem, y: margem,
-      w: DEVICE_WIDTH - margem * 2,
-      h: DEVICE_HEIGHT - margem * 2,
-      line_width: px(ESPESSURA_ANEL),
+    const arco = {
+      x: 0,
+      y: 0,
+      w: DEVICE_WIDTH,
+      h: DEVICE_HEIGHT,
+      line_width: px(14),
+      start_angle: -90,
     };
 
     hmUI.createWidget(hmUI.widget.ARC, {
-      ...box,
-      start_angle: INICIO,
-      end_angle: INICIO + 360,
-      color: TRILHA,
+      ...arco,
+      end_angle: 270,
+      color: 0x1c1c1e,
     });
 
     const anel = hmUI.createWidget(hmUI.widget.ARC, {
-      ...box,
-      start_angle: INICIO,
-      end_angle: INICIO,
+      ...arco,
+      end_angle: -90,
       color: LIMA,
     });
 
-    hmUI.createWidget(hmUI.widget.BUTTON, {
-      x: px(130), y: px(108),
-      w: DEVICE_WIDTH - px(260), h: px(130),
-      radius: px(30),
-      normal_color: 0x000000, press_color: 0x10150a,
-      text: "",
-      click_func: () => contarRep(),
-    });
+    texto(105, 52, 270, 38, ex.nome, 26);
 
-    hmUI.createWidget(hmUI.widget.TEXT, {
-      x: px(70), y: px(52),
-      w: DEVICE_WIDTH - px(140), h: px(34),
-      text: ex.nome, text_size: px(22), color: 0xffffff,
-      align_h: hmUI.align.CENTER_H,
-      align_v: hmUI.align.CENTER_V,
-    });
+    if (ex.series <= 10) {
+      const largura =
+        ex.series * 14 + (ex.series - 1) * 10;
 
-    const dot = px(11);
-    const gap = px(9);
-    const larguraTotal = ex.series * dot + (ex.series - 1) * gap;
-    const x0 = centroX - larguraTotal / 2;
+      for (let i = 0; i < ex.series; i++) {
+        hmUI.createWidget(hmUI.widget.FILL_RECT, {
+          x: px(240 - largura / 2 + i * 24),
+          y: px(96),
+          w: px(14),
+          h: px(14),
+          radius: px(7),
 
-    for (let i = 0; i < ex.series; i++) {
-      hmUI.createWidget(hmUI.widget.FILL_RECT, {
-        x: x0 + i * (dot + gap), y: px(94),
-        w: dot, h: dot, radius: dot / 2,
-        color:
-          i < serie - 1
-            ? LIMA
-            : i === serie - 1
-              ? 0xffffff
-              : 0x3a3a3c,
-      });
+          color:
+            i < p.serie - 1
+              ? LIMA
+              : i === p.serie - 1
+                ? 0xffffff
+                : 0x3a3a3c,
+        });
+      }
+    } else {
+      texto(
+        130, 90, 220, 26,
+        `SÉRIE ${p.serie} DE ${ex.series}`,
+        18,
+        LIMA
+      );
     }
 
-    const contador = hmUI.createWidget(hmUI.widget.TEXT, {
-      x: px(110), y: px(110),
-      w: DEVICE_WIDTH - px(220), h: px(100),
-      text: "00", text_size: px(84), color: 0xffffff,
-      align_h: hmUI.align.CENTER_H,
-      align_v: hmUI.align.CENTER_V,
-    });
+    const contador = texto(
+      125, 116, 230, 110, "00", 96
+    );
 
-    const sub = hmUI.createWidget(hmUI.widget.TEXT, {
-      x: px(70), y: px(212),
-      w: DEVICE_WIDTH - px(140), h: px(26),
-      text: `DE ${ex.reps} REPETIÇÕES`,
-      text_size: px(14), color: 0xaaaaaa,
-      align_h: hmUI.align.CENTER_H,
-      align_v: hmUI.align.CENTER_V,
-    });
+    contador.addEventListener(
+      hmUI.event.CLICK_UP,
+      () => contar(1)
+    );
 
-    const distancia = px(48);
-    const colW = px(96);
-    const pesoY = px(258);
-    const xAnt = centroX - distancia - colW / 2;
-    const xAtu = centroX + distancia - colW / 2;
+    const sub = texto(
+      90, 228, 300, 26, "", 18, 0xaaaaaa
+    );
 
-    hmUI.createWidget(hmUI.widget.FILL_RECT, {
-      x: centroX - px(1), y: pesoY + px(10),
-      w: px(2), h: px(70), color: 0x2a2a2c,
-    });
+    const peso = (x, rotulo, valor, editar) => {
+      const fundo = hmUI.createWidget(
+        hmUI.widget.FILL_RECT,
+        {
+          x: px(x),
+          y: px(262),
+          w: px(140),
+          h: px(100),
+          radius: px(18),
+          color: editar ? 0x12170a : 0x101010,
+        }
+      );
 
-    hmUI.createWidget(hmUI.widget.BUTTON, {
-      x: xAtu, y: pesoY - px(6),
-      w: colW, h: px(100), radius: px(20),
-      normal_color: 0x000000, press_color: 0x10150a,
-      text: "",
-      click_func: () => abrirRoda(),
-    });
+      const titulo = texto(
+        x + 4, 264, 132, 24,
+        rotulo,
+        17,
+        editar ? LIMA : 0x999999
+      );
 
-    const colunaPeso = (x, rotulo, valor, corRotulo) => {
-      hmUI.createWidget(hmUI.widget.TEXT, {
-        x, y: pesoY, w: colW, h: px(22),
-        text: rotulo, text_size: px(13), color: corRotulo,
-        align_h: hmUI.align.CENTER_H,
-        align_v: hmUI.align.CENTER_V,
-      });
+      const numero = texto(
+        x + 4, 288, 132, 46,
+        fmt(valor),
+        fmt(valor).length > 4 ? 34 : 44
+      );
 
-      const v = hmUI.createWidget(hmUI.widget.TEXT, {
-        x, y: pesoY + px(22), w: colW, h: px(56),
-        text: fmt(valor), text_size: px(40), color: 0xffffff,
-        align_h: hmUI.align.CENTER_H,
-        align_v: hmUI.align.CENTER_V,
-      });
+      const unidade = texto(
+        x + 4, 336, 132, 24,
+        editar ? "kg · EDITAR" : "kg",
+        16,
+        editar ? LIMA : 0x999999
+      );
 
-      hmUI.createWidget(hmUI.widget.TEXT, {
-        x, y: pesoY + px(78), w: colW, h: px(20),
-        text: "kg", text_size: px(14), color: 0x888888,
-        align_h: hmUI.align.CENTER_H,
-        align_v: hmUI.align.CENTER_V,
-      });
+      if (editar) {
+        [fundo, titulo, numero, unidade].forEach((w) => {
+          w.addEventListener(
+            hmUI.event.CLICK_UP,
+            () => abrir()
+          );
+        });
+      }
 
-      return v;
+      return numero;
     };
 
-    colunaPeso(xAnt, "ANTERIOR", ultimo, 0x888888);
-    const cargaTxt = colunaPeso(xAtu, "ATUAL", carga, LIMA);
+    peso(90, "ANTERIOR", anterior, false);
 
-    hmUI.createWidget(hmUI.widget.BUTTON, {
-      x: px(130), y: px(372),
-      w: DEVICE_WIDTH - px(260), h: px(50),
-      radius: px(25),
-      normal_color: 0x202020, press_color: 0x353535,
-      text: "PULAR", text_size: px(17), color: 0xffffff,
-      click_func: () => pular(),
-    });
+    const cargaTxt = peso(
+      250, "ATUAL", carga, true
+    );
 
-    const TESTE = true;
-
-    if (TESTE) {
-      hmUI.createWidget(hmUI.widget.BUTTON, {
-        x: px(52), y: px(148),
-        w: px(64), h: px(64), radius: px(32),
-        normal_color: 0x202020, press_color: 0x353535,
-        text: "+REP", text_size: px(15), color: LIMA,
-        click_func: () => contarRep(),
-      });
-
-      hmUI.createWidget(hmUI.widget.BUTTON, {
-        x: px(52), y: px(222),
-        w: px(64), h: px(40), radius: px(20),
-        normal_color: 0x202020, press_color: 0x353535,
-        text: "VIB", text_size: px(14), color: 0xffffff,
-        click_func: () => vibrar("serie"),
-      });
-    }
+    botao(
+      120, 376, 240, 54,
+      "PULAR",
+      () => encaminhar(false, "coroa")
+    );
 
     const overlay = [];
+
     const ov = (w) => {
       overlay.push(w);
       return w;
     };
 
-    const rodaY = px(235);
-    const altLinha = px(60);
-    const raio = px(RAIO);
-    const rad = (ANGULO * Math.PI) / 180;
-
     ov(hmUI.createWidget(hmUI.widget.FILL_RECT, {
-      x: 0, y: 0, w: DEVICE_WIDTH, h: DEVICE_HEIGHT,
+      x: 0,
+      y: 0,
+      w: DEVICE_WIDTH,
+      h: DEVICE_HEIGHT,
       color: 0x000000,
     }));
 
-    ov(hmUI.createWidget(hmUI.widget.TEXT, {
-      x: px(80), y: px(62),
-      w: DEVICE_WIDTH - px(160), h: px(32),
-      text: "PESO ATUAL", text_size: px(20), color: LIMA,
-      align_h: hmUI.align.CENTER_H,
-      align_v: hmUI.align.CENTER_V,
-    }));
+    ov(texto(
+      110, 54, 260, 36,
+      "PESO ATUAL",
+      26,
+      LIMA
+    ));
 
-    ov(hmUI.createWidget(hmUI.widget.TEXT, {
-      x: px(80), y: px(96),
-      w: DEVICE_WIDTH - px(160), h: px(24),
-      text: "GIRE A COROA", text_size: px(13), color: 0x888888,
-      align_h: hmUI.align.CENTER_H,
-      align_v: hmUI.align.CENTER_V,
-    }));
+    ov(texto(
+      110, 94, 260, 26,
+      "GIRE OU TOQUE − / +",
+      17,
+      0xaaaaaa
+    ));
 
     ov(hmUI.createWidget(hmUI.widget.FILL_RECT, {
-      x: centroX - px(110), y: rodaY - altLinha / 2,
-      w: px(220), h: altLinha,
-      radius: px(30), color: 0x12170a,
-    }));
-
-    const slots = [];
-
-    for (let i = 0; i < 5; i++) {
-      slots.push(ov(hmUI.createWidget(hmUI.widget.TEXT, {
-        x: px(100), y: rodaY - altLinha / 2,
-        w: DEVICE_WIDTH - px(200), h: altLinha,
-        text: "", text_size: px(20), color: 0x000000,
-        align_h: hmUI.align.CENTER_H,
-        align_v: hmUI.align.CENTER_V,
-      })));
-    }
-
-    ov(hmUI.createWidget(hmUI.widget.TEXT, {
-      x: centroX + px(78), y: rodaY - px(12),
-      w: px(50), h: px(26),
-      text: "kg", text_size: px(16), color: LIMA,
-      align_h: hmUI.align.LEFT,
-      align_v: hmUI.align.CENTER_V,
-    }));
-
-    ov(hmUI.createWidget(hmUI.widget.BUTTON, {
-      x: px(110), y: px(385),
-      w: DEVICE_WIDTH - px(220), h: px(56),
+      x: px(110),
+      y: px(206),
+      w: px(260),
+      h: px(64),
       radius: px(28),
-      normal_color: LIMA, press_color: LIMA_PRESS,
-      text: "OK", text_size: px(20), color: 0x000000,
-      click_func: () => fecharRoda(true),
+      color: 0x12170a,
     }));
 
-    const mostrarOverlay = (on) => {
+    const slots = [0, 1, 2, 3, 4].map(
+      () => ov(texto(125, 208, 230, 60, "", 48))
+    );
+
+    ov(botao(
+      48, 213, 56, 52,
+      "−",
+      () => mudarPeso(alvo - 1)
+    ));
+
+    ov(botao(
+      376, 213, 56, 52,
+      "+",
+      () => mudarPeso(alvo + 1)
+    ));
+
+    ov(texto(
+      170, 340, 140, 24,
+      "kg",
+      20,
+      LIMA
+    ));
+
+    ov(botao(
+      120, 378, 240, 54,
+      "OK",
+      () => fechar(),
+      true
+    ));
+
+    const mostrar = (visivel) => {
       overlay.forEach((w) =>
-        w.setProperty(hmUI.prop.VISIBLE, on)
+        w.setProperty(hmUI.prop.VISIBLE, visivel)
       );
     };
 
-    mostrarOverlay(false);
+    mostrar(false);
 
-    let base0 = carga;
+    let base = 0;
     let alvo = 0;
-    let posRoda = 0;
-    let timerRoda = null;
+    let pos = 0;
 
-    const valorDe = (i) => base0 + i * PASSO_CARGA;
+    const valor = (i) =>
+      Math.round((base + i * 2.5) * 100) / 100;
 
-    const renderRoda = (p) => {
-      const base = Math.round(p);
+    const render = () => {
+      const centro = Math.round(pos);
 
       slots.forEach((w, k) => {
-        const idx = base + (k - 2);
-        const valor = valorDe(idx);
-        const a = (idx - p) * rad;
+        const i = centro + k - 2;
+        const d = i - pos;
+        const v = valor(i);
+        const y = 208 + d * 72;
 
-        if (
-          valor < 0 ||
-          valor > PESO_MAX ||
-          Math.abs(a) >= Math.PI / 2
-        ) {
+        const visivel =
+          editando &&
+          y >= 126 &&
+          y + 60 <= 338 &&
+          v >= 0 &&
+          v <= 500;
+
+        w.setProperty(
+          hmUI.prop.VISIBLE,
+          visivel
+        );
+
+        if (visivel) {
           w.setProperty(hmUI.prop.MORE, {
-            text: "", color: 0x000000,
+            y: px(y),
+            text: fmt(v),
+
+            text_size: px(
+              Math.round(
+                26 +
+                22 * Math.max(0, 1 - Math.abs(d))
+              )
+            ),
+
+            color:
+              Math.abs(d) < 0.15
+                ? 0xffffff
+                : 0x888888,
           });
-          return;
         }
-
-        const c = Math.cos(a);
-
-        w.setProperty(hmUI.prop.MORE, {
-          text: fmt(valor),
-          y: rodaY + raio * Math.sin(a) - altLinha / 2,
-          text_size: px(Math.round(14 + 34 * c * c)),
-          color: cinza(255 * Math.pow(c, 2.5)),
-        });
       });
     };
 
-    const irParaRoda = (novo) => {
-      const v = valorDe(novo);
-
-      if (novo === alvo || v < 0 || v > PESO_MAX) return;
+    const mudarPeso = (novo) => {
+      if (
+        !editando ||
+        valor(novo) < 0 ||
+        valor(novo) > 500
+      ) {
+        return;
+      }
 
       alvo = novo;
 
-      if (timerRoda) clearInterval(timerRoda);
+      if (timerRoda !== null) {
+        clearInterval(timerRoda);
+      }
 
-      const ini = posRoda;
-      const fim = alvo;
-      const t0 = Date.now();
+      const origem = pos;
+      const inicio = Date.now();
 
       timerRoda = setInterval(() => {
-        const t = (Date.now() - t0) / DURACAO;
+        const t = Math.min(
+          1,
+          (Date.now() - inicio) / 220
+        );
 
-        if (t >= 1) {
-          posRoda = fim;
-          renderRoda(posRoda);
+        pos =
+          origem +
+          (alvo - origem) *
+          (1 - Math.pow(1 - t, 3));
+
+        render();
+
+        if (t === 1) {
           clearInterval(timerRoda);
           timerRoda = null;
-          return;
         }
-
-        posRoda = ini + (fim - ini) * (1 - Math.pow(1 - t, 3));
-        renderRoda(posRoda);
-      }, PASSO_MS);
+      }, 20);
     };
 
-    const abrirRoda = () => {
-      if (finalizando || modoRoda) return;
+    const abrir = () => {
+      if (bloqueado) return;
 
-      modoRoda = true;
+      editando = true;
       acumulado = 0;
-      base0 = carga;
+      base = carga;
       alvo = 0;
-      posRoda = 0;
+      pos = 0;
 
-      renderRoda(0);
-      mostrarOverlay(true);
+      mostrar(true);
+      render();
+
+      det.suspender(Date.now());
     };
 
-    const fecharRoda = (confirmar) => {
-      if (!modoRoda) return;
+    const fechar = () => {
+      if (!editando || bloqueado) return;
 
-      if (timerRoda) {
+      if (timerRoda !== null) {
         clearInterval(timerRoda);
         timerRoda = null;
       }
 
-      if (confirmar) {
-        carga = Math.max(0, valorDe(alvo));
-        cargaTxt.setProperty(hmUI.prop.TEXT, fmt(carga));
-      }
+      carga = valor(alvo);
 
-      salvarEstado();
-      mostrarOverlay(false);
-      modoRoda = false;
+      cargaTxt.setProperty(hmUI.prop.MORE, {
+        text: fmt(carga),
+        text_size: px(
+          fmt(carga).length > 4 ? 34 : 44
+        ),
+      });
+
+      editando = false;
+      mostrar(false);
       acumulado = 0;
-      det.reiniciar(Date.now());
+
+      det.suspender(Date.now());
+      salvar();
     };
 
-    const salvarPeso = () => {
-      salvarCarga(treinos[tI], ex, carga);
-    };
+    const atualizarStatus = () => {
+      const estado = det.estado(Date.now());
 
-    const salvarEstado = () => {
-      try {
-        salvarSessao({
-          id: this.sessaoId,
-          fase: "exercicio",
-          t: tI,
-          ex: exI,
-          serie,
-          carga,
-          inicio,
-          feitas,
-          exs,
-          reps: repeticoes,
-        });
-      } catch (e) {
-        finalizando = true;
+      let msg =
+        `META ${ex.reps} · COROA ENCERRA`;
 
-        aviso(e.message, () =>
-          replace({
-            url: "page/gt/exercicio/index.page",
-            params: JSON.stringify({
-              id: this.sessaoId,
-              t: tI,
-              ex: exI,
-              serie,
-              carga,
-              inicio,
-              feitas,
-              exs,
-              reps: repeticoes,
-            }),
-          })
-        );
+      if (estado.fase === "aprendendo") {
+        msg =
+          `APRENDENDO ${estado.amostrasModelo}/3` +
+          ` · META ${ex.reps}`;
+      } else if (estado.fase === "reconhecendo") {
+        msg = `RECONHECENDO · META ${ex.reps}`;
+      } else if (
+        estado.restanteMs !== null &&
+        estado.restanteMs <= 2500
+      ) {
+        msg =
+          `ENCERRANDO EM ` +
+          `${Math.ceil(estado.restanteMs / 1000)} s`;
       }
+
+      sub.setProperty(hmUI.prop.TEXT, msg);
     };
 
-    const proximo = (feitasAgora, exsAgora) => {
-      if (!ultimoEx) {
-        replace({
-          url: "page/gt/exercicio/index.page",
-          params: JSON.stringify({
-            t: tI,
-            ex: exI + 1,
-            serie: 1,
-            inicio,
-            feitas: feitasAgora,
-            exs: exsAgora,
-          }),
-        });
-      } else {
-        const p = {
-          id: this.sessaoId,
-          t: tI,
-          ex: exI,
-          inicio,
-          fim: Date.now(),
-          feitas: feitasAgora,
-          exs: exsAgora,
-        };
+    const atualizar = () => {
+      contador.setProperty(hmUI.prop.MORE, {
+        text: String(reps).padStart(2, "0"),
+        text_size: px(reps >= 100 ? 72 : 96),
+      });
 
-        const finalizar = () => {
-          try {
-            const resultado = criarResultado(p, treinos[tI]);
-            const sessao = prepararFinalizacao(p, resultado);
+      atualizarStatus();
+
+      anel.setProperty(hmUI.prop.MORE, {
+        end_angle:
+          -90 + 360 * Math.min(1, reps / ex.reps),
+      });
+    };
+
+    const salvar = () => {
+      try {
+        p = salvarSessao({
+          ...p,
+          fase: "exercicio",
+          carga,
+          reps,
+          modelosMovimento: guardarModelo(),
+        });
+
+        return true;
+      } catch (e) {
+        bloqueado = true;
+
+        aviso(e.message, () => {
+          if (salvar()) {
+            bloqueado = false;
 
             replace({
-              url: "page/gt/resumo/index.page",
-              params: JSON.stringify(sessao),
+              url: "page/gt/exercicio/index.page",
+              params: JSON.stringify(p),
             });
-          } catch (e) {
-            aviso(e.message, finalizar);
           }
-        };
-
-        finalizar();
-      }
-    };
-
-    const pular = () => {
-      if (finalizando || modoRoda) return;
-
-      finalizando = true;
-      proximo(feitas, exs);
-    };
-
-    const concluirSerie = () => {
-      if (finalizando) return;
-
-      finalizando = true;
-      vibrar("serie");
-
-      if (!ultimaSerie) {
-        replace({
-          url: "page/gt/descanso/index.page",
-          params: JSON.stringify({
-            t: tI,
-            ex: exI,
-            serie: serie + 1,
-            carga,
-            descanso: ex.descanso,
-            inicio,
-            feitas: feitas + 1,
-            exs,
-          }),
         });
-      } else {
-        const concluir = () => {
-          try {
-            salvarPeso();
-            proximo(feitas + 1, exs + 1);
-          } catch (e) {
-            aviso(e.message, concluir);
-          }
-        };
 
-        concluir();
+        return false;
       }
     };
 
-    const contarRep = () => {
-      if (finalizando || modoRoda || repeticoes >= ex.reps) {
+    const encaminhar = (concluiu, motivo) => {
+      if (
+        bloqueado ||
+        editando ||
+        destruido
+      ) {
         return;
       }
 
-      repeticoes++;
+      bloqueado = true;
 
-      contador.setProperty(hmUI.prop.MORE, {
-        text: repeticoes < 10 ? "0" + repeticoes : "" + repeticoes,
-        text_size: px(100),
-      });
+      const historico = [
+        ...(p.seriesRealizadas || []),
+      ];
 
-      setTimeout(
-        () => contador.setProperty(hmUI.prop.MORE, {
-          text_size: px(84),
-        }),
-        90
-      );
+      if (concluiu) {
+        historico.push({
+          exercicioId: ex.id,
+          exercicioNome: ex.nome,
+          serie: p.serie,
+          meta: ex.reps,
+          repeticoes: reps,
+          carga,
+          fim: Date.now(),
+          motivo,
+        });
+      }
 
-      anel.setProperty(hmUI.prop.MORE, {
-        end_angle: INICIO + 360 * (repeticoes / ex.reps),
-      });
+      const ultima = p.serie >= ex.series;
 
-      salvarEstado();
+      const proxima = {
+        ...p,
+        carga,
+        reps: 0,
+        seriesRealizadas: historico,
+        modelosMovimento: guardarModelo(),
+        feitas: p.feitas + (concluiu ? 1 : 0),
+        exs: p.exs + (concluiu && ultima ? 1 : 0),
+      };
 
-      if (repeticoes >= ex.reps) {
-        concluirSerie();
+      let destino;
+      let dados;
+
+      if (concluiu && !ultima) {
+        destino = "descanso";
+
+        dados = {
+          ...proxima,
+          fase: "descanso",
+          serie: p.serie + 1,
+          descanso: ex.descanso,
+          fimAbs: Date.now() + ex.descanso * 1000,
+        };
+      } else if (
+        p.ex < ficha.exercicios.length - 1
+      ) {
+        destino = "exercicio";
+
+        dados = {
+          ...proxima,
+          fase: "exercicio",
+          ex: p.ex + 1,
+          serie: 1,
+        };
+
+        delete dados.carga;
+        delete dados.fimAbs;
+        delete dados.descanso;
       } else {
+        destino = "resumo";
+
+        dados = {
+          ...proxima,
+          fim: Date.now(),
+        };
+      }
+
+      const executar = () => {
+        try {
+          if (concluiu) {
+            salvarCarga(ficha, ex, carga);
+          }
+
+          if (destino === "resumo") {
+            dados = prepararFinalizacao(
+              dados,
+              criarResultado(dados, ficha)
+            );
+          } else {
+            dados = salvarSessao(dados);
+          }
+
+          vibrar("serie");
+
+          replace({
+            url: `page/gt/${destino}/index.page`,
+            params: JSON.stringify(dados),
+          });
+        } catch (e) {
+          aviso(e.message, executar);
+        }
+      };
+
+      executar();
+    };
+
+    const contar = (quantidade) => {
+      if (
+        bloqueado ||
+        editando ||
+        destruido ||
+        quantidade < 1
+      ) {
+        return;
+      }
+
+      const antes = reps;
+
+      reps += quantidade;
+      atualizar();
+
+      if (!salvar()) return;
+
+      if (
+        antes < ex.reps &&
+        reps >= ex.reps
+      ) {
+        det.pausaVibracao(Date.now());
         vibrar("rep");
       }
     };
 
-    let acc = null;
+    atualizar();
+
+    if (!salvar()) return;
 
     try {
-      acc = new sensor.Accelerometer();
+      const acc = new sensor.Accelerometer();
+      this.acc = acc;
 
       try {
         acc.setFreqMode(sensor.FREQ_MODE_HIGH);
-      } catch (e) {}
+      } catch (_) {}
 
       acc.onChange(() => {
-        const a = acc.getCurrent();
-
-        if (!a) return;
-        if (modoRoda || finalizando) return;
-
-        const agora = Date.now();
-
-        if (det.feed(a.x, a.y, a.z, agora)) {
-          contarRep();
+        if (
+          bloqueado ||
+          editando ||
+          destruido
+        ) {
+          return;
         }
 
-        if (DEBUG && agora - ultimoDebug > 250) {
-          ultimoDebug = agora;
+        const a = acc.getCurrent();
+        const agora = Date.now();
 
-          const i = det.info();
-          const erro = erroVibracao();
+        if (
+          !a ||
+          ![a.x, a.y, a.z].every(Number.isFinite)
+        ) {
+          return;
+        }
 
-          sub.setProperty(
-            hmUI.prop.TEXT,
-            `${i.hz}Hz amp${i.amp} Δ${i.delta}` +
-              (erro ? ` V:${erro}` : "")
-          );
+        const quantidade = det.feed(
+          a.x,
+          a.y,
+          a.z,
+          agora
+        );
+
+        if (quantidade > 0) {
+          contar(quantidade);
+        }
+
+        if (agora - ultimoStatus >= 250) {
+          ultimoStatus = agora;
+          atualizarStatus();
+        }
+
+        if (
+          !bloqueado &&
+          reps > 0 &&
+          det.estado(agora).fimSerie
+        ) {
+          encaminhar(true, "pausa");
         }
       });
 
       acc.start();
     } catch (e) {
-      console.log(
-        "ERRO ACELEROMETRO:",
-        e && e.message ? e.message : e
+      sub.setProperty(
+        hmUI.prop.TEXT,
+        "TOQUE PARA CONTAR · COROA ENCERRA"
       );
     }
 
-    this.acc = acc;
-
     onDigitalCrown({
       callback: (key, degree) => {
-        if (!modoRoda) return;
+        teclaCoroa = key;
 
-        acumulado += degree;
+        if (
+          !editando ||
+          bloqueado ||
+          !Number.isFinite(degree)
+        ) {
+          return;
+        }
 
-        if (acumulado >= LIMIAR_COROA) {
+        acumulado -= degree;
+
+        if (Math.abs(acumulado) >= 5) {
+          mudarPeso(
+            alvo + (acumulado > 0 ? 1 : -1)
+          );
+
           acumulado = 0;
-          irParaRoda(alvo + 1);
-        } else if (acumulado <= -LIMIAR_COROA) {
-          acumulado = 0;
-          irParaRoda(alvo - 1);
         }
       },
     });
 
-    if (repeticoes > 0) {
-      contador.setProperty(
-        hmUI.prop.TEXT,
-        repeticoes < 10 ? "0" + repeticoes : "" + repeticoes
-      );
+    onKey({
+      callback: (key, event) => {
+        if (
+          key !== teclaCoroa ||
+          event !== KEY_EVENT_CLICK
+        ) {
+          return false;
+        }
 
-      anel.setProperty(hmUI.prop.MORE, {
-        end_angle: INICIO + 360 * (repeticoes / ex.reps),
-      });
-    }
+        if (!bloqueado) {
+          if (editando) {
+            fechar();
+          } else {
+            encaminhar(true, "coroa");
+          }
+        }
 
-    salvarEstado();
-
-    if (!finalizando && repeticoes >= ex.reps) {
-      concluirSerie();
-    }
+        return true;
+      },
+    });
 
     this.limpar = () => {
-      if (timerRoda) clearInterval(timerRoda);
+      destruido = true;
+
+      if (timerRoda !== null) {
+        clearInterval(timerRoda);
+      }
+
+      offKey();
       offDigitalCrown();
     };
   },
 
   onDestroy() {
-    if (this.limpar) this.limpar();
+    if (this.limpar) {
+      this.limpar();
+    }
 
     try {
       if (this.acc) {
         this.acc.offChange();
         this.acc.stop();
       }
-    } catch (e) {}
+    } catch (_) {}
   },
 });

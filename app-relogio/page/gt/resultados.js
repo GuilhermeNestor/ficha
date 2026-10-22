@@ -22,6 +22,7 @@ function estado() {
 
     const migrados = antigos.filter((r) => {
       if (ids[r.id]) return false;
+
       ids[r.id] = true;
       return true;
     });
@@ -29,8 +30,6 @@ function estado() {
     e = {
       versao: 1,
       ultimo: null,
-
-      // Exceção temporária: preserva todos os pendentes antigos.
       legados: migrados.map((r) => ({
         ...r,
         estado: "pendente",
@@ -43,8 +42,10 @@ function estado() {
   if (
     e.versao !== 1 ||
     !Array.isArray(e.legados) ||
-    (e.ultimo &&
-      !["pendente", "sincronizado"].includes(e.ultimo.estado))
+    (
+      e.ultimo &&
+      !["pendente", "sincronizado"].includes(e.ultimo.estado)
+    )
   ) {
     throw new Error("Resultado salvo inválido");
   }
@@ -57,9 +58,11 @@ export function carregarResultadosPendentes() {
 
   return [
     ...e.legados,
-    ...(e.ultimo && e.ultimo.estado === "pendente"
-      ? [e.ultimo]
-      : []),
+    ...(
+      e.ultimo && e.ultimo.estado === "pendente"
+        ? [e.ultimo]
+        : []
+    ),
   ];
 }
 
@@ -90,6 +93,12 @@ export function criarResultado(p, ficha) {
     duracaoMs: p.fim - p.inicio,
     seriesConcluidas: p.feitas || 0,
     exerciciosConcluidos: p.exs || 0,
+
+    ...(
+      Array.isArray(p.seriesRealizadas)
+        ? { seriesRealizadas: p.seriesRealizadas }
+        : {}
+    ),
 
     cargas: ficha.exercicios.map((ex) => ({
       exercicioId: ex.id,
@@ -158,6 +167,7 @@ export function confirmarResultado(ack) {
   }
 
   const e = estado();
+
   const i = e.legados.findIndex(
     (r) => r.id === ack.resultadoId
   );
@@ -170,6 +180,15 @@ export function confirmarResultado(ack) {
 
   if (!e.ultimo || e.ultimo.id !== ack.resultadoId) {
     throw new Error("Confirmação de outro treino");
+  }
+
+  if (
+    Array.isArray(e.ultimo.seriesRealizadas) &&
+    ack.seriesPersistidas !== e.ultimo.seriesRealizadas.length
+  ) {
+    throw new Error(
+      "Atualize o app celular: séries não confirmadas"
+    );
   }
 
   gravar(CHAVE, {

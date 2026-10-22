@@ -19,7 +19,7 @@ const LIMIAR = 5;
 const DURACAO = 260;
 const PASSO_MS = 20;
 const ANGULO = 40;
-const RAIO = 72;
+const RAIO = 90;
 
 function cinza(g) {
   const v = Math.max(0, Math.min(255, Math.round(g)));
@@ -76,8 +76,8 @@ Page({
     let descartar = null;
 
     const centroX = DEVICE_WIDTH / 2;
-    const centroY = px(238);
-    const altLinha = px(44);
+    const centroY = px(210);
+    const altLinha = px(68);
     const raio = px(RAIO);
     const rad = (ANGULO * Math.PI) / 180;
 
@@ -94,21 +94,21 @@ Page({
     });
 
     hmUI.createWidget(hmUI.widget.TEXT, {
-      x: px(30), y: px(65),
-      w: DEVICE_WIDTH - px(60), h: px(45),
+      x: px(30), y: px(44),
+      w: DEVICE_WIDTH - px(60), h: px(40),
       text: "FICHA DE TREINO",
-      text_size: px(24), color: 0xffffff,
+      text_size: px(28), color: 0xffffff,
       align_h: hmUI.align.CENTER_H,
       align_v: hmUI.align.CENTER_V,
     });
 
     hmUI.createWidget(hmUI.widget.BUTTON, {
-      x: px(30), y: px(112),
-      w: DEVICE_WIDTH - px(60), h: px(30),
+      x: px(30), y: px(86),
+      w: DEVICE_WIDTH - px(60), h: px(38),
       normal_color: 0x000000,
       press_color: 0x1c1c1e,
       text: "SINCRONIZAR",
-      text_size: px(14), color: LIMA,
+      text_size: px(18), color: LIMA,
       align_h: hmUI.align.CENTER_H,
       align_v: hmUI.align.CENTER_V,
       click_func: () =>
@@ -116,10 +116,10 @@ Page({
     });
 
     hmUI.createWidget(hmUI.widget.FILL_RECT, {
-      x: centroX - px(115),
+      x: centroX - px(150),
       y: centroY - altLinha / 2 - px(2),
-      w: px(230), h: altLinha + px(4),
-      radius: px(22), color: 0x12170a,
+      w: px(300), h: altLinha + px(4),
+      radius: px(36), color: 0x12170a,
     });
 
     const itens = treinos.map((t) =>
@@ -133,17 +133,17 @@ Page({
     );
 
     const seta = hmUI.createWidget(hmUI.widget.TEXT, {
-      x: centroX - px(100), y: centroY - altLinha / 2,
-      w: px(30), h: altLinha,
-      text: "", text_size: px(24), color: LIMA,
+      x: centroX - px(120), y: centroY - altLinha / 2,
+      w: px(44), h: altLinha,
+      text: "", text_size: px(36), color: LIMA,
       align_h: hmUI.align.CENTER_H,
       align_v: hmUI.align.CENTER_V,
     });
 
     const info = hmUI.createWidget(hmUI.widget.TEXT, {
-      x: px(45), y: sessao ? px(322) : px(330),
-      w: DEVICE_WIDTH - px(90), h: px(26),
-      text: textoInfo(), text_size: px(14), color: 0xaaaaaa,
+      x: px(45), y: px(296),
+      w: DEVICE_WIDTH - px(90), h: px(28),
+      text: textoInfo(), text_size: px(16), color: 0xaaaaaa,
       align_h: hmUI.align.CENTER_H,
       align_v: hmUI.align.CENTER_V,
     });
@@ -177,24 +177,24 @@ Page({
 
         w.setProperty(hmUI.prop.MORE, {
           y: centroY + raio * Math.sin(a) - altLinha / 2,
-          text_size: px(Math.round(12 + 16 * c * c)),
+          text_size: px(Math.round(16 + 28 * c * c)),
           color: cinza(255 * Math.pow(c, 2.5)),
         });
       });
     };
 
     const mostrarSeta = () => {
-      let largura = px(120);
+      let largura = px(140);
 
       try {
         const m = hmUI.getTextLayout(treinos[sel].nome, {
-          text_size: px(28), text_width: 0, wrapped: 0,
+          text_size: px(44), text_width: 0, wrapped: 0,
         });
         if (m && m.width) largura = m.width;
       } catch (e) {}
 
       seta.setProperty(hmUI.prop.MORE, {
-        x: centroX - largura / 2 - px(36),
+        x: centroX - largura / 2 - px(46),
         text: ">",
       });
     };
@@ -236,7 +236,7 @@ Page({
 
     onDigitalCrown({
       callback: (key, degree) => {
-        acumulado += degree;
+        acumulado -= degree;   // horário = próximo treino
 
         if (acumulado >= LIMIAR) {
           acumulado = 0;
@@ -249,15 +249,15 @@ Page({
     });
 
     const btnX = px(110);
-    const btnY = px(385);
+    const btnY = px(366);
     const btnW = DEVICE_WIDTH - px(220);
-    const btnH = px(56);
+    const btnH = px(62);
 
     if (sessao) {
       descartar = hmUI.createWidget(hmUI.widget.BUTTON, {
-        x: px(150), y: px(350),
-        w: DEVICE_WIDTH - px(300), h: px(26),
-        radius: px(13),
+        x: px(150), y: px(326),
+        w: DEVICE_WIDTH - px(300), h: px(34),
+        radius: px(17),
         normal_color: 0x000000, press_color: 0x1c1c1e,
         text: "DESCARTAR", text_size: px(20), color: 0x888888,
         click_func: () => {

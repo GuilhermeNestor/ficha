@@ -1,236 +1,255 @@
 import * as hmUI from "@zos/ui";
 import { px } from "@zos/utils";
 import { replace } from "@zos/router";
-import { onDigitalCrown, offDigitalCrown } from "@zos/interaction";
+import {
+  onDigitalCrown,
+  offDigitalCrown,
+} from "@zos/interaction";
 import * as display from "@zos/display";
 import { DEVICE_WIDTH, DEVICE_HEIGHT } from "../layout.js";
 import { aviso } from "../aviso.js";
 import { salvarSessao } from "../sessao.js";
 import { vibrar } from "../vibracao.js";
 
-const AZUL = 0x168cff;
-const INICIO = -90;
-const LIMIAR = 25;
-const ATUALIZA_MS = 20;
-const MARGEM_ANEL = 0;
-const ESPESSURA_ANEL = 10;
-
 Page({
   onInit(params) {
-    let p = {};
-
     try {
-      p = JSON.parse(params);
-    } catch (e) {}
-
-    this.p = p;
+      this.p = JSON.parse(params) || {};
+    } catch (_) {
+      this.p = {};
+    }
   },
 
   build() {
-    const p = this.p;
-
+    let p = this.p;
     let total = p.descanso || 60;
     let fim = p.fimAbs || Date.now() + total * 1000;
     let acumulado = 0;
     let timer = null;
     let saiu = false;
     let ultimoNumero = -1;
-    let ultimoAngulo = -9999;
+
+    const texto = (
+      x, y, w, h, text, size, color = 0xffffff
+    ) => hmUI.createWidget(hmUI.widget.TEXT, {
+      x: px(x),
+      y: px(y),
+      w: px(w),
+      h: px(h),
+      text,
+      text_size: px(size),
+      color,
+      align_h: hmUI.align.CENTER_H,
+      align_v: hmUI.align.CENTER_V,
+      text_style: hmUI.text_style.ELLIPSIS,
+    });
 
     try {
       display.setPageBrightTime({ brightTime: 300000 });
-    } catch (e) {}
-
-    try {
       display.pauseDropWristScreenOff({ duration: 300000 });
-    } catch (e) {}
+    } catch (_) {}
 
     hmUI.createWidget(hmUI.widget.FILL_RECT, {
-      x: 0, y: 0, w: DEVICE_WIDTH, h: DEVICE_HEIGHT,
+      x: 0,
+      y: 0,
+      w: DEVICE_WIDTH,
+      h: DEVICE_HEIGHT,
       color: 0x000000,
     });
 
-    const margem = px(MARGEM_ANEL);
-
     const anel = hmUI.createWidget(hmUI.widget.ARC, {
-      x: margem, y: margem,
-      w: DEVICE_WIDTH - margem * 2,
-      h: DEVICE_HEIGHT - margem * 2,
-      line_width: px(ESPESSURA_ANEL),
-      start_angle: INICIO,
-      end_angle: INICIO + 360,
-      color: AZUL,
+      x: 0,
+      y: 0,
+      w: DEVICE_WIDTH,
+      h: DEVICE_HEIGHT,
+      line_width: px(14),
+      start_angle: -90,
+      end_angle: 270,
+      color: 0x168cff,
     });
 
-    hmUI.createWidget(hmUI.widget.TEXT, {
-      x: px(80), y: px(80),
-      w: DEVICE_WIDTH - px(160), h: px(40),
-      text: "DESCANSO", text_size: px(20), color: AZUL,
-      align_h: hmUI.align.CENTER_H,
-      align_v: hmUI.align.CENTER_V,
-    });
+    texto(
+      110, 58, 260, 40,
+      "DESCANSO",
+      26,
+      0x168cff
+    );
 
-    const numero = hmUI.createWidget(hmUI.widget.TEXT, {
-      x: px(80), y: px(130),
-      w: DEVICE_WIDTH - px(160), h: px(130),
-      text: String(total), text_size: px(100), color: 0xffffff,
-      align_h: hmUI.align.CENTER_H,
-      align_v: hmUI.align.CENTER_V,
-    });
+    const numero = texto(
+      90, 104, 300, 170, "", 150
+    );
 
-    hmUI.createWidget(hmUI.widget.TEXT, {
-      x: px(80), y: px(262),
-      w: DEVICE_WIDTH - px(160), h: px(28),
-      text: "GIRE A COROA: ±5 s",
-      text_size: px(14), color: 0xaaaaaa,
-      align_h: hmUI.align.CENTER_H,
-      align_v: hmUI.align.CENTER_V,
-    });
+    texto(
+      100, 276, 280, 28,
+      "GIRE A COROA: ±5 s",
+      18,
+      0xaaaaaa
+    );
 
-    hmUI.createWidget(hmUI.widget.TEXT, {
-      x: px(80), y: px(292),
-      w: DEVICE_WIDTH - px(160), h: px(36),
-      text: `PRÓXIMA  ${p.carga} kg`,
-      text_size: px(20), color: 0xffffff,
-      align_h: hmUI.align.CENTER_H,
-      align_v: hmUI.align.CENTER_V,
-    });
+    texto(
+      90, 308, 300, 40,
+      `PRÓXIMA  ${p.carga ?? 0} kg`,
+      28
+    );
+
+    const parar = () => {
+      saiu = true;
+
+      if (timer !== null) {
+        clearTimeout(timer);
+      }
+
+      offDigitalCrown();
+    };
+
+    this.limpar = parar;
+
+    const erro = (e) => {
+      parar();
+
+      aviso(e.message, () =>
+        replace({
+          url: "page/gt/descanso/index.page",
+          params: JSON.stringify({
+            ...p,
+            descanso: total,
+            fimAbs: fim,
+          }),
+        })
+      );
+    };
 
     const voltar = () => {
       if (saiu) return;
 
-      saiu = true;
+      parar();
 
-      if (timer) clearTimeout(timer);
+      const proxima = {
+        ...p,
+        fase: "exercicio",
+        reps: 0,
+      };
 
-      vibrar("fim");
+      delete proxima.fimAbs;
+      delete proxima.descanso;
 
-      replace({
-        url: "page/gt/exercicio/index.page",
-        params: JSON.stringify({
-          t: p.t,
-          ex: p.ex,
-          serie: p.serie,
-          carga: p.carga,
-          inicio: p.inicio,
-          feitas: p.feitas,
-          exs: p.exs,
-        }),
-      });
+      const executar = () => {
+        try {
+          const s = salvarSessao(proxima);
+
+          vibrar("fim");
+
+          replace({
+            url: "page/gt/exercicio/index.page",
+            params: JSON.stringify(s),
+          });
+        } catch (e) {
+          aviso(e.message, executar);
+        }
+      };
+
+      executar();
     };
 
     hmUI.createWidget(hmUI.widget.BUTTON, {
-      x: px(110), y: px(355),
-      w: DEVICE_WIDTH - px(220), h: px(54),
-      radius: px(27),
-      normal_color: 0x202020, press_color: 0x353535,
-      text: "PULAR", text_size: px(18), color: 0xffffff,
+      x: px(120),
+      y: px(366),
+      w: px(240),
+      h: px(60),
+      radius: px(30),
+      normal_color: 0x202020,
+      press_color: 0x353535,
+      text: "PULAR",
+      text_size: px(24),
+      color: 0xffffff,
       click_func: voltar,
     });
 
-    const salvarEstado = () => {
+    const salvar = () => {
       try {
-        salvarSessao({
+        p = salvarSessao({
+          ...p,
           fase: "descanso",
-          t: p.t,
-          ex: p.ex,
-          serie: p.serie,
-          carga: p.carga,
-          inicio: p.inicio,
-          feitas: p.feitas,
-          exs: p.exs,
           descanso: total,
           fimAbs: fim,
         });
+
+        return true;
       } catch (e) {
-        saiu = true;
-
-        if (timer) clearTimeout(timer);
-        offDigitalCrown();
-
-        aviso(e.message, () =>
-          replace({
-            url: "page/gt/descanso/index.page",
-            params: JSON.stringify({
-              ...p,
-              descanso: total,
-              fimAbs: fim,
-            }),
-          })
-        );
+        erro(e);
+        return false;
       }
     };
 
     const atualizar = () => {
-      const msRestante = Math.max(0, fim - Date.now());
-      const segundos = Math.ceil(msRestante / 1000);
+      if (saiu) return;
+
+      const restante = Math.max(0, fim - Date.now());
+      const segundos = Math.ceil(restante / 1000);
 
       if (segundos !== ultimoNumero) {
         ultimoNumero = segundos;
-        numero.setProperty(hmUI.prop.TEXT, String(segundos));
+
+        numero.setProperty(hmUI.prop.MORE, {
+          text: String(segundos),
+          text_size: px(
+            segundos >= 1000
+              ? 88
+              : segundos >= 100
+                ? 118
+                : 150
+          ),
+        });
       }
 
-      const angulo =
-        INICIO + 360 * Math.min(1, msRestante / (total * 1000));
+      anel.setProperty(hmUI.prop.MORE, {
+        end_angle:
+          -90 + 360 * Math.min(1, restante / (total * 1000)),
+      });
 
-      if (Math.abs(angulo - ultimoAngulo) >= 0.4) {
-        ultimoAngulo = angulo;
-        anel.setProperty(hmUI.prop.END_ANGLE, angulo);
-      }
-
-      if (msRestante <= 0) voltar();
-    };
-
-    const quadro = () => {
-      if (saiu) return;
-
-      const t0 = Date.now();
-
-      atualizar();
-
-      const gasto = Date.now() - t0;
-
-      if (!saiu) {
-        timer = setTimeout(
-          quadro,
-          Math.max(0, ATUALIZA_MS - gasto)
-        );
+      if (restante <= 0) {
+        voltar();
       }
     };
 
-    salvarEstado();
-
-    if (!saiu) quadro();
+    if (!salvar()) return;
 
     onDigitalCrown({
       callback: (key, degree) => {
-        acumulado += degree;
+        if (saiu || !Number.isFinite(degree)) return;
 
-        let passo = 0;
+        acumulado -= degree;
 
-        if (acumulado >= LIMIAR) {
-          passo = 1;
-          acumulado = 0;
-        } else if (acumulado <= -LIMIAR) {
-          passo = -1;
-          acumulado = 0;
+        if (Math.abs(acumulado) < 5) return;
+
+        const passo = acumulado > 0 ? 5 : -5;
+        acumulado = 0;
+
+        const restante = Math.max(0, fim - Date.now());
+
+        const novo = Math.max(
+          0,
+          Math.min(3600000, restante + passo * 1000)
+        );
+
+        fim = Date.now() + novo;
+        total = Math.max(5, Math.ceil(novo / 1000));
+
+        if (salvar()) {
+          atualizar();
         }
-
-        if (!passo) return;
-
-        fim += passo * 5000;
-        total = Math.max(5, total + passo * 5);
-
-        salvarEstado();
-
-        if (!saiu) atualizar();
       },
     });
 
-    this.limpar = () => {
-      if (timer) clearTimeout(timer);
-      offDigitalCrown();
+    const quadro = () => {
+      atualizar();
+
+      if (!saiu) {
+        timer = setTimeout(quadro, 50);
+      }
     };
+
+    quadro();
   },
 
   onDestroy() {

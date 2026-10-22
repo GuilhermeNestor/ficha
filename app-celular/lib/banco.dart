@@ -89,13 +89,11 @@ class Banco {
       orderBy: 'atualizado ASC, id ASC',
     );
 
-    return linhas
-        .map(
-          (linha) => Json.from(
-            jsonDecode(linha['conteudo'] as String) as Map,
-          ),
-        )
-        .toList();
+    return linhas.map((linha) {
+      return Json.from(
+        jsonDecode(linha['conteudo'] as String) as Map,
+      );
+    }).toList();
   }
 
   Future<void> salvarFicha(Json ficha) async {
@@ -178,13 +176,11 @@ class Banco {
       orderBy: 'inicio DESC',
     );
 
-    return linhas
-        .map(
-          (linha) => Json.from(
-            jsonDecode(linha['conteudo'] as String) as Map,
-          ),
-        )
-        .toList();
+    return linhas.map((linha) {
+      return Json.from(
+        jsonDecode(linha['conteudo'] as String) as Map,
+      );
+    }).toList();
   }
 
   Future<Json> salvarResultado(Json recebido) async {
@@ -202,7 +198,9 @@ class Banco {
       if (existentes.isNotEmpty) {
         final anterior = _normalizarResultado(
           Json.from(
-            jsonDecode(existentes.single['conteudo'] as String) as Map,
+            jsonDecode(
+              existentes.single['conteudo'] as String,
+            ) as Map,
           ),
         );
 
@@ -222,11 +220,13 @@ class Banco {
       });
     });
 
-    // Confirma somente depois de concluir a transação.
+    // A confirmação só é enviada após concluir a transação.
     return {
       'versao': 1,
       'persistido': true,
       'resultadoId': resultado['id'],
+      'seriesPersistidas':
+          (resultado['seriesRealizadas'] as List?)?.length ?? 0,
     };
   }
 
@@ -279,7 +279,10 @@ class Banco {
       final carga = item['ultimaCarga'];
 
       if (carga != null &&
-          (carga is! num || !carga.isFinite || carga < 0 || carga > 500)) {
+          (carga is! num ||
+              !carga.isFinite ||
+              carga < 0 ||
+              carga > 500)) {
         throw Exception('Valor da carga inválido.');
       }
 
@@ -291,11 +294,70 @@ class Banco {
           item['exercicioNome'],
           'nome do exercício',
         ),
-        'ultimaCarga': carga == null ? null : (carga as num).toDouble(),
+        'ultimaCarga':
+            carga == null ? null : (carga as num).toDouble(),
       });
     }
 
+    final series = <Json>[];
+
+    if (r.containsKey('seriesRealizadas')) {
+      final listaSeries = r['seriesRealizadas'];
+
+      if (listaSeries is! List || listaSeries.length > 2000) {
+        throw Exception('Lista de séries inválida.');
+      }
+
+      final chaves = <String>{};
+
+      for (final s in listaSeries) {
+        if (s is! Map) {
+          throw Exception('Série inválida.');
+        }
+
+        final exId = texto(
+          s['exercicioId'],
+          'exercício da série',
+        );
+
+        final numero = inteiro(
+          s['serie'],
+          'número da série',
+        );
+
+        final peso = s['carga'];
+        final motivo = s['motivo'];
+
+        if (numero < 1 ||
+            numero > 50 ||
+            !chaves.add('$exId:$numero') ||
+            peso is! num ||
+            !peso.isFinite ||
+            peso < 0 ||
+            peso > 500 ||
+            (motivo != 'pausa' && motivo != 'coroa')) {
+          throw Exception('Dados da série inválidos.');
+        }
+
+        series.add({
+          'exercicioId': exId,
+          'exercicioNome': texto(
+            s['exercicioNome'],
+            'nome do exercício',
+          ),
+          'serie': numero,
+          'meta': inteiro(s['meta'], 'meta'),
+          'repeticoes': inteiro(s['repeticoes'], 'repetições'),
+          'carga': peso.toDouble(),
+          'fim': inteiro(s['fim'], 'fim da série'),
+          'motivo': motivo,
+        });
+      }
+    }
+
     return {
+      if (r.containsKey('seriesRealizadas'))
+        'seriesRealizadas': series,
       'versao': 1,
       'id': texto(r['id'], 'ID'),
       'fichaId': texto(r['fichaId'], 'ID da ficha'),
@@ -303,7 +365,10 @@ class Banco {
       'inicio': inicio,
       'fim': fim,
       'duracaoMs': duracao,
-      'seriesConcluidas': inteiro(r['seriesConcluidas'], 'séries'),
+      'seriesConcluidas': inteiro(
+        r['seriesConcluidas'],
+        'séries',
+      ),
       'exerciciosConcluidos': inteiro(
         r['exerciciosConcluidos'],
         'exercícios',
@@ -323,7 +388,9 @@ class Banco {
       );
 
       if (linhas.isEmpty) {
-        throw Exception('Crie uma ficha antes de enviar ao relógio.');
+        throw Exception(
+          'Crie uma ficha antes de enviar ao relógio.',
+        );
       }
 
       final revisao = await tx.query(
@@ -335,9 +402,9 @@ class Banco {
       return {
         'versao': 1,
         'revisao': revisao.single['valor'],
-        'fichas': linhas
-            .map((linha) => jsonDecode(linha['conteudo'] as String))
-            .toList(),
+        'fichas': linhas.map((linha) {
+          return jsonDecode(linha['conteudo'] as String);
+        }).toList(),
       };
     });
   }
@@ -351,7 +418,9 @@ class Banco {
       throw Exception('Identificador da ficha inválido.');
     }
 
-    if (nome is! String || nome.trim().isEmpty || nome.length > 100) {
+    if (nome is! String ||
+        nome.trim().isEmpty ||
+        nome.length > 100) {
       throw Exception('Informe um nome de até 100 caracteres.');
     }
 
@@ -401,8 +470,12 @@ class Banco {
         throw Exception('A carga deve ficar entre 0 e 500 kg.');
       }
 
-      if (descanso is! int || descanso < 5 || descanso > 3600) {
-        throw Exception('O descanso deve ficar entre 5 e 3600 segundos.');
+      if (descanso is! int ||
+          descanso < 5 ||
+          descanso > 3600) {
+        throw Exception(
+          'O descanso deve ficar entre 5 e 3600 segundos.',
+        );
       }
     }
   }
@@ -431,27 +504,45 @@ class Banco {
         'id': 'peito',
         'nome': 'PEITO',
         'exercicios': [
-          exercicio('peito_ex_1', 'SUPINO RETO', 4, 10, 20, 60),
-          exercicio('peito_ex_2', 'SUPINO INCLINADO', 3, 10, 16, 60),
-          exercicio('peito_ex_3', 'TRÍCEPS CORDA', 3, 10, 25, 45),
+          exercicio(
+            'peito_ex_1', 'SUPINO RETO', 4, 10, 20, 60,
+          ),
+          exercicio(
+            'peito_ex_2', 'SUPINO INCLINADO', 3, 10, 16, 60,
+          ),
+          exercicio(
+            'peito_ex_3', 'TRÍCEPS CORDA', 3, 10, 25, 45,
+          ),
         ],
       },
       {
         'id': 'costas',
         'nome': 'COSTAS',
         'exercicios': [
-          exercicio('costas_ex_1', 'PUXADA FRENTE', 4, 10, 40, 60),
-          exercicio('costas_ex_2', 'REMADA CURVADA', 3, 12, 30, 60),
-          exercicio('costas_ex_3', 'ROSCA DIRETA', 3, 12, 12, 45),
+          exercicio(
+            'costas_ex_1', 'PUXADA FRENTE', 4, 10, 40, 60,
+          ),
+          exercicio(
+            'costas_ex_2', 'REMADA CURVADA', 3, 12, 30, 60,
+          ),
+          exercicio(
+            'costas_ex_3', 'ROSCA DIRETA', 3, 12, 12, 45,
+          ),
         ],
       },
       {
         'id': 'perna',
         'nome': 'PERNA',
         'exercicios': [
-          exercicio('perna_ex_1', 'AGACHAMENTO', 4, 10, 40, 90),
-          exercicio('perna_ex_2', 'LEG PRESS', 4, 12, 100, 90),
-          exercicio('perna_ex_3', 'CADEIRA EXTENSORA', 3, 12, 35, 60),
+          exercicio(
+            'perna_ex_1', 'AGACHAMENTO', 4, 10, 40, 90,
+          ),
+          exercicio(
+            'perna_ex_2', 'LEG PRESS', 4, 12, 100, 90,
+          ),
+          exercicio(
+            'perna_ex_3', 'CADEIRA EXTENSORA', 3, 12, 35, 60,
+          ),
         ],
       },
     ];
