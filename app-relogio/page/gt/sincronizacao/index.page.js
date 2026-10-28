@@ -9,6 +9,7 @@ import {
   confirmarResultado,
 } from "../resultados.js";
 import { receberFichas, pacoteFichas } from "../ficha.js";
+import { listarGravacoes, enviarGravacoes } from "../gravacoes.js";
 
 Page(BasePage({
   build() {
@@ -66,6 +67,7 @@ Page(BasePage({
       this.mostrar(
         `SINCRONIZAÇÃO\n` +
         `${p.length} resultado(s) pendente(s)\n` +
+        `${listarGravacoes().length} gravação(ões) de teste\n` +
         `${p.length
           ? "Sincronize para liberar novo treino."
           : "Pronto para treinar."}\n` +
@@ -135,6 +137,13 @@ Page(BasePage({
 
     try {
       this.mostrar("Conectando ao celular...");
+
+      // Gravações de teste primeiro; cada vaga só é liberada após o celular confirmar.
+      await enviarGravacoes(
+        (req) => this.pedir(req),
+        (texto) => this.mostrar(texto),
+        () => this.ativo
+      );
 
       const p = carregarResultadosPendentes();
 

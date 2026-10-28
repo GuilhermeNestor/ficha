@@ -5,7 +5,8 @@ const TOKEN = "ficha_9a7e2b46d8104f5b8196e032a67c43fd";
 
 AppSideService(BaseSideService({
   onRequest(req, res) {
-    if (req.method !== "resultado.salvar" && req.method !== "fichas.obter") {
+    const permitidos = ["resultado.salvar", "fichas.obter", "gravacao.parte"];
+    if (!permitidos.includes(req.method)) {
       res(null, { erro: "Operação desconhecida" });
       return;
     }
@@ -49,6 +50,12 @@ AppSideService(BaseSideService({
              !req.params.resultado ||
              dados.resultadoId !== req.params.resultado.id)) {
           throw new Error("Confirmação do resultado inválida.");
+        }
+        if (req.method === "gravacao.parte" &&
+            (!req.params || dados.id !== req.params.id ||
+             dados.hash !== req.params.hash ||
+             dados.indice !== req.params.indice)) {
+          throw new Error("Confirmação da gravação inválida.");
         }
         if (req.method === "fichas.obter" && !dados.pacote) {
           throw new Error("Pacote de fichas ausente.");
