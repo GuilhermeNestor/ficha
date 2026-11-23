@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import 'banco.dart';
 import 'ponte.dart';
+import 'tela_gravacoes.dart';
 
 const verde = Color(0xFFB6FF00);
 const fundo = Color(0xFF090B09);
@@ -232,6 +233,12 @@ class _TelaInicialState extends State<TelaInicial> with WidgetsBindingObserver {
       appBar: AppBar(
         title: Text(_aba == 0 ? 'Ficha de Treino' : 'Histórico'),
         actions: [
+          IconButton(
+            tooltip: 'Gravações de teste',
+            onPressed: () => Navigator.of(context).push(MaterialPageRoute(
+              builder: (_) => const TelaGravacoes())),
+            icon: const Icon(Icons.sensors),
+          ),
           IconButton(
             tooltip: 'Atualizar',
             onPressed: _carregando ? null : _carregar,

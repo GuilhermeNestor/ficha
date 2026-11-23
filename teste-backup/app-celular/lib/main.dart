@@ -1,8 +1,9 @@
 import 'package:flutter/material.dart';
 
 import 'banco.dart';
+import 'medidas.dart';
+import 'perfil.dart';
 import 'ponte.dart';
-import 'tela_gravacoes.dart';
 
 const verde = Color(0xFFB6FF00);
 const fundo = Color(0xFF090B09);
@@ -231,14 +232,14 @@ class _TelaInicialState extends State<TelaInicial> with WidgetsBindingObserver {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Text(_aba == 0 ? 'Ficha de Treino' : 'Histórico'),
+        title: Text(_aba == 0
+            ? 'Ficha de Treino'
+            : _aba == 1
+                ? 'Histórico'
+                : _aba == 2
+                    ? 'Medidas'
+                    : 'Perfil'),
         actions: [
-          IconButton(
-            tooltip: 'Gravações de teste',
-            onPressed: () => Navigator.of(context).push(MaterialPageRoute(
-              builder: (_) => const TelaGravacoes())),
-            icon: const Icon(Icons.sensors),
-          ),
           IconButton(
             tooltip: 'Atualizar',
             onPressed: _carregando ? null : _carregar,
@@ -265,12 +266,19 @@ class _TelaInicialState extends State<TelaInicial> with WidgetsBindingObserver {
             label: 'Fichas',
           ),
           NavigationDestination(icon: Icon(Icons.history), label: 'Histórico'),
+          NavigationDestination(
+              icon: Icon(Icons.monitor_weight_outlined), label: 'Medidas'),
+          NavigationDestination(
+              icon: Icon(Icons.person_outline), label: 'Perfil'),
         ],
       ),
     );
   }
 
   Widget _conteudo() {
+    if (_aba == 2) return const TelaMedidas();
+    if (_aba == 3) return const TelaPerfil();
+
     if (_carregando) {
       return const Center(child: CircularProgressIndicator());
     }
