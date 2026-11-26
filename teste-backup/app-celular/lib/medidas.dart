@@ -1,8 +1,10 @@
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
 
 import 'banco.dart';
+import 'comparar_fotos.dart';
 
 String _num1(num v) => v.toStringAsFixed(1).replaceAll('.', ',');
 
@@ -103,7 +105,8 @@ Widget _tituloSecao(BuildContext context, String texto) {
 /// Uma série do gráfico. Pode juntar várias medidas e usar a média delas
 /// (ex.: braço direito + braço esquerdo = braços).
 class _Serie {
-  const _Serie(this.nome, this.unidade, this.chaves, {this.circ = false});
+  const _Serie(this.nome, this.unidade, this.chaves,
+      {this.circ = false, this.dobra = false});
 
   final String nome;
   final String unidade;
@@ -112,11 +115,14 @@ class _Serie {
   /// true: as chaves ficam dentro de 'circunferenciasCm'.
   final bool circ;
 
+  /// true: as chaves ficam dentro de 'dobrasMm'.
+  final bool dobra;
+
   bool get ehMedia => chaves.length > 1;
 
   /// Média dos valores disponíveis. Se só um lado foi medido, usa só ele.
   double? valor(Json m) {
-    final fonte = circ ? m['circunferenciasCm'] : m;
+    final fonte = dobra ? m['dobrasMm'] : (circ ? m['circunferenciasCm'] : m);
     if (fonte is! Map) return null;
 
     final valores = <double>[];
@@ -132,12 +138,14 @@ class _Serie {
 
 const _pares = <String, List<String>>{
   'braco': ['bracoD', 'bracoE'],
+  'antebraco': ['antebracoD', 'antebracoE'],
   'coxa': ['coxaD', 'coxaE'],
   'panturrilha': ['panturrilhaD', 'panturrilhaE'],
 };
 
 const _nomesPares = <String, String>{
   'braco': 'Braços',
+  'antebraco': 'Antebraços',
   'coxa': 'Coxas',
   'panturrilha': 'Panturrilhas',
 };
@@ -164,6 +172,11 @@ Map<String, _Serie> _montarSeries() {
   for (final e in circunferenciasMedidas.entries) {
     if (usadas.contains(e.key) || e.key == 'cintura') continue;
     s['circ:${e.key}'] = _Serie(e.value, 'cm', [e.key], circ: true);
+  }
+
+  for (final e in dobrasCutaneasMedidas.entries) {
+    s['dobra:${e.key}'] =
+        _Serie('Dobra ${e.value.toLowerCase()}', 'mm', [e.key], dobra: true);
   }
 
   return s;
@@ -265,6 +278,121 @@ class _TelaMedidasState extends State<TelaMedidas> {
     }
 
     return pontos;
+  }
+
+  /// Pares (avaliação, foto) mais recentes primeiro.
+  List<(Json, String, String)> _todasFotos() {
+    final r = <(Json, String, String)>[];
+    for (final m in _medidas.reversed) {
+      final f = m['fotos'];
+      if (f is! List) continue;
+      for (final x in f) {
+        if (x is Map && x['arquivo'] is String && x['vista'] is String) {
+          r.add((m, x['vista'] as String, x['arquivo'] as String));
+        }
+      }
+    }
+    return r;
+  }
+
+  bool get _podeComparar {
+    for (final v in vistasFoto.keys) {
+      var n = 0;
+      for (final m in _medidas) {
+        final f = m['fotos'];
+        if (f is List && f.any((x) => x is Map && x['vista'] == v)) n++;
+      }
+      if (n >= 2) return true;
+    }
+    return false;
+  }
+
+  Widget _secaoFotos(Color cor) {
+    final fotos = _todasFotos();
+    final podeComparar = _podeComparar;
+
+    return _Cartao(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          if (fotos.isEmpty)
+            const Text(
+              'Nenhuma foto ainda. Adicione fotos de frente, lado e costas '
+              'dentro de uma avaliação para acompanhar a evolução.',
+              style: TextStyle(color: Colors.white70),
+            )
+          else
+            SizedBox(
+              height: 118,
+              child: ListView.separated(
+                scrollDirection: Axis.horizontal,
+                itemCount: fotos.length > 8 ? 8 : fotos.length,
+                separatorBuilder: (_, __) => const SizedBox(width: 8),
+                itemBuilder: (_, i) {
+                  final (m, vista, arquivo) = fotos[i];
+                  return GestureDetector(
+                    onTap: () => _editar(m),
+                    child: AspectRatio(
+                      aspectRatio: 3 / 4,
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(14),
+                        child: Stack(
+                          fit: StackFit.expand,
+                          children: [
+                            FotoImg(nome: arquivo, cacheWidth: 300),
+                            Positioned(
+                              left: 4,
+                              right: 4,
+                              bottom: 4,
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 6, vertical: 2),
+                                decoration: BoxDecoration(
+                                  color: Colors.black54,
+                                  borderRadius: BorderRadius.circular(10),
+                                ),
+                                child: Text(
+                                  '${vistasFoto[vista]} · '
+                                  '${_dataCurta(m['data'] as int)}',
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(
+                                      fontSize: 10, color: Colors.white),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  );
+                },
+              ),
+            ),
+          const SizedBox(height: 12),
+          OutlinedButton.icon(
+            onPressed: podeComparar
+                ? () => Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (_) => TelaCompararFotos(medidas: _medidas),
+                      ),
+                    )
+                : null,
+            icon: const Icon(Icons.compare),
+            label: const Text('Comparar fotos'),
+          ),
+          if (!podeComparar)
+            const Padding(
+              padding: EdgeInsets.only(top: 8),
+              child: Text(
+                'Para comparar, precisa de 2 avaliações com a mesma pose.',
+                textAlign: TextAlign.center,
+                style: TextStyle(color: Colors.white38, fontSize: 12),
+              ),
+            ),
+        ],
+      ),
+    );
   }
 
   Widget _botaoNova() {
@@ -569,6 +697,15 @@ class _TelaMedidasState extends State<TelaMedidas> {
       final n = c.values.where((v) => v is num).length;
       if (n > 0) partes.add('$n regiões');
     }
+    final d = m['dobrasMm'];
+    if (d is Map) {
+      final n = d.values.where((v) => v is num).length;
+      if (n > 0) partes.add('$n dobras');
+    }
+    final f = m['fotos'];
+    if (f is List && f.isNotEmpty) {
+      partes.add(f.length == 1 ? '1 foto' : '${f.length} fotos');
+    }
     if (partes.isEmpty) {
       return m['pesoKg'] is num ? 'Somente peso' : 'Sem medidas';
     }
@@ -710,6 +847,9 @@ class _TelaMedidasState extends State<TelaMedidas> {
           _chips(cor),
           const SizedBox(height: 12),
           _graficoCard(cor),
+          const SizedBox(height: 28),
+          _tituloSecao(context, 'Fotos'),
+          _secaoFotos(cor),
           const SizedBox(height: 28),
           _tituloSecao(context, 'Histórico'),
           for (final m in _medidas.reversed) _itemHistorico(m, cor, sup),
@@ -879,6 +1019,20 @@ class _FormMedidaState extends State<_FormMedida>
     for (final k in circunferenciasMedidas.keys) k: TextEditingController(),
   };
 
+  final Map<String, TextEditingController> _dobras = {
+    for (final k in dobrasCutaneasMedidas.keys) k: TextEditingController(),
+  };
+
+  Json? _perfil;
+
+  // Fotos: pose -> nome do arquivo. _novas = copiadas nesta tela (ainda
+  // podem ser descartadas se a pessoa sair sem salvar).
+  final Map<String, String> _fotos = {};
+  final Set<String> _novas = {};
+  final Set<String> _originais = {};
+  final _seletor = ImagePicker();
+  bool _salvou = false;
+
   String? _erro;
   bool _salvando = false;
 
@@ -898,19 +1052,201 @@ class _FormMedidaState extends State<_FormMedida>
       _circ[k]!.text = _txt(c is Map ? c[k] : null);
     }
 
+    final d = m?['dobrasMm'];
+    for (final k in dobrasCutaneasMedidas.keys) {
+      _dobras[k]!.text = _txt(d is Map ? d[k] : null);
+    }
+
+    final fs = m?['fotos'];
+    if (fs is List) {
+      for (final f in fs) {
+        if (f is Map && f['vista'] is String && f['arquivo'] is String) {
+          _fotos[f['vista'] as String] = f['arquivo'] as String;
+          _originais.add(f['arquivo'] as String);
+        }
+      }
+    }
+
+    _carregarPerfil();
+
     _data = m == null
         ? DateTime.now()
         : DateTime.fromMillisecondsSinceEpoch(m['data'] as int);
   }
 
+  Future<void> _carregarPerfil() async {
+    try {
+      final p = await Banco.instancia.obterPerfil();
+      if (mounted) setState(() => _perfil = p);
+    } catch (_) {
+      // Sem perfil, a estimativa de gordura só não aparece.
+    }
+  }
+
+  Future<void> _escolherFoto(String vista, ImageSource origem) async {
+    try {
+      final x = await _seletor.pickImage(
+        source: origem,
+        maxWidth: 1600,
+        maxHeight: 2200,
+        imageQuality: 85,
+      );
+      if (x == null) return;
+      final nome = await Banco.instancia.guardarFoto(x.path);
+      final antiga = _fotos[vista];
+      if (antiga != null && _novas.remove(antiga)) {
+        await Banco.instancia.apagarFoto(antiga);
+      }
+      _novas.add(nome);
+      if (mounted) setState(() => _fotos[vista] = nome);
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Não foi possível usar a foto: '
+            '${e.toString().replaceFirst('Exception: ', '')}',
+          ),
+        ),
+      );
+    }
+  }
+
+  Future<void> _removerFoto(String vista) async {
+    final antiga = _fotos.remove(vista);
+    if (antiga != null && _novas.remove(antiga)) {
+      await Banco.instancia.apagarFoto(antiga);
+    }
+    if (mounted) setState(() {});
+  }
+
+  void _menuFoto(String vista) {
+    if (_salvando) return;
+    showModalBottomSheet<void>(
+      context: context,
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.photo_camera_outlined),
+              title: const Text('Tirar foto'),
+              onTap: () {
+                Navigator.pop(ctx);
+                _escolherFoto(vista, ImageSource.camera);
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.photo_library_outlined),
+              title: const Text('Escolher da galeria'),
+              onTap: () {
+                Navigator.pop(ctx);
+                _escolherFoto(vista, ImageSource.gallery);
+              },
+            ),
+            if (_fotos.containsKey(vista))
+              ListTile(
+                leading: const Icon(Icons.delete_outline, color: Colors.redAccent),
+                title: const Text('Remover foto'),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  _removerFoto(vista);
+                },
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _slotFoto(String vista) {
+    final nome = _fotos[vista];
+
+    return Expanded(
+      child: GestureDetector(
+        onTap: () => _menuFoto(vista),
+        child: Column(
+          children: [
+            AspectRatio(
+              aspectRatio: 3 / 4,
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(16),
+                child: nome != null
+                    ? FotoImg(nome: nome, cacheWidth: 500)
+                    : Container(
+                        decoration: BoxDecoration(
+                          color: Colors.white10,
+                          borderRadius: BorderRadius.circular(16),
+                        ),
+                        alignment: Alignment.center,
+                        child: const Icon(
+                          Icons.add_a_photo_outlined,
+                          color: Colors.white54,
+                        ),
+                      ),
+              ),
+            ),
+            const SizedBox(height: 6),
+            Text(vistasFoto[vista]!, style: const TextStyle(fontSize: 13)),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _cartaoFotos(Color cor) {
+    return _Cartao(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.photo_camera_outlined, color: cor),
+              const SizedBox(width: 10),
+              const Text(
+                'Fotos',
+                style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold),
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          const Text(
+            'Opcional. Use sempre a mesma luz, distância e pose. '
+            'As fotos ficam só neste celular.',
+            style: TextStyle(color: Colors.white54, fontSize: 12),
+          ),
+          const SizedBox(height: 14),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              for (final v in vistasFoto.keys) ...[
+                _slotFoto(v),
+                if (v != vistasFoto.keys.last) const SizedBox(width: 10),
+              ],
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   void dispose() {
+    // Saiu sem salvar: descarta as fotos copiadas nesta tela.
+    if (!_salvou) {
+      for (final n in _novas) {
+        Banco.instancia.apagarFoto(n);
+      }
+    }
     _zoom.dispose();
     _entrada.dispose();
     _peso.dispose();
     _gordura.dispose();
     _cintura.dispose();
     for (final c in _circ.values) {
+      c.dispose();
+    }
+    for (final c in _dobras.values) {
       c.dispose();
     }
     super.dispose();
@@ -989,9 +1325,11 @@ class _FormMedidaState extends State<_FormMedida>
     final algum = _peso.text.trim().isNotEmpty ||
         _gordura.text.trim().isNotEmpty ||
         _cintura.text.trim().isNotEmpty ||
-        _circ.values.any((c) => c.text.trim().isNotEmpty);
+        _circ.values.any((c) => c.text.trim().isNotEmpty) ||
+        _dobras.values.any((c) => c.text.trim().isNotEmpty) ||
+        _fotos.isNotEmpty;
     if (!algum) {
-      setState(() => _erro = 'Preencha ao menos uma medida para salvar.');
+      setState(() => _erro = 'Preencha ao menos uma medida ou foto para salvar.');
       return;
     }
 
@@ -1011,10 +1349,23 @@ class _FormMedidaState extends State<_FormMedida>
         'circunferenciasCm': {
           for (final e in _circ.entries) e.key: e.value.text,
         },
+        'dobrasMm': {
+          for (final e in _dobras.entries) e.key: e.value.text,
+        },
+        'fotos': [
+          for (final e in _fotos.entries) {'vista': e.key, 'arquivo': e.value},
+        ],
         // Mantém uma observação antiga, sem exibir o campo no formulário.
         if (widget.medida?['observacao'] is String)
           'observacao': widget.medida!['observacao'],
       });
+      _salvou = true;
+
+      // Apaga os arquivos das fotos originais que foram trocadas/removidas.
+      final finais = _fotos.values.toSet();
+      for (final n in _originais) {
+        if (!finais.contains(n)) await Banco.instancia.apagarFoto(n);
+      }
       if (mounted) Navigator.pop(context, true);
     } catch (e) {
       if (!mounted) return;
@@ -1347,6 +1698,180 @@ class _FormMedidaState extends State<_FormMedida>
     );
   }
 
+  Widget _campoMedida(TextEditingController c, String rotulo, String sufixo,
+      {ValueChanged<String>? aoMudar}) {
+    return TextField(
+      controller: c,
+      onChanged: aoMudar,
+      keyboardType: const TextInputType.numberWithOptions(decimal: true),
+      decoration: InputDecoration(labelText: rotulo, suffixText: sufixo),
+    );
+  }
+
+  /// Monta linhas com dois campos lado a lado.
+  List<Widget> _linhasDeCampos(
+    List<String> chaves,
+    Map<String, TextEditingController> controles,
+    Map<String, String> rotulos,
+    String sufixo, {
+    ValueChanged<String>? aoMudar,
+  }) {
+    final linhas = <Widget>[];
+    for (var i = 0; i < chaves.length; i += 2) {
+      final a = chaves[i];
+      final b = i + 1 < chaves.length ? chaves[i + 1] : null;
+      linhas.add(
+        Padding(
+          padding: const EdgeInsets.only(bottom: 12),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                child: _campoMedida(controles[a]!, rotulos[a]!, sufixo,
+                    aoMudar: aoMudar),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: b == null
+                    ? const SizedBox()
+                    : _campoMedida(controles[b]!, rotulos[b]!, sufixo,
+                        aoMudar: aoMudar),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+    return linhas;
+  }
+
+  // Medidas que não aparecem no mapa do corpo.
+  Widget _cartaoExtras(Color cor) {
+    final chaves = circunferenciasMedidas.keys
+        .where((k) => !_locais.containsKey(k))
+        .toList();
+    if (chaves.isEmpty) return const SizedBox.shrink();
+
+    return _Cartao(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          _tituloSecao(context, 'Outras medidas'),
+          const Text(
+            'Antebraço, punho, glúteo e tornozelo. Todas opcionais.',
+            style: TextStyle(color: Colors.white38, fontSize: 12),
+          ),
+          const SizedBox(height: 14),
+          ..._linhasDeCampos(chaves, _circ, circunferenciasMedidas, 'cm'),
+        ],
+      ),
+    );
+  }
+
+  double? get _gorduraEstimada {
+    final p = _perfil;
+    if (p == null || p['nascimento'] is! int) return null;
+    final idade = idadeEm(p['nascimento'] as int, _data);
+    return gorduraJacksonPollock7(
+      {for (final e in _dobras.entries) e.key: e.value.text},
+      p['sexo'] as String?,
+      idade,
+    );
+  }
+
+  Widget _cartaoDobras(Color cor) {
+    final preenchidas =
+        _dobras.values.where((c) => c.text.trim().isNotEmpty).length;
+    final total = _dobras.length;
+    final estimada = _gorduraEstimada;
+    final p = _perfil;
+
+    String dica;
+    if (p == null || p['nascimento'] is! int) {
+      dica = 'Preencha o nascimento no Perfil para estimar a gordura.';
+    } else if (p['sexo'] != 'Masculino' && p['sexo'] != 'Feminino') {
+      dica = 'Escolha o sexo (Masculino ou Feminino) no Perfil para estimar.';
+    } else if (preenchidas < total) {
+      dica = 'Preencha as $total dobras para estimar a gordura.';
+    } else {
+      dica = 'Os valores informados não geram uma estimativa válida.';
+    }
+
+    return _Cartao(
+      child: Theme(
+        data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
+        child: ExpansionTile(
+          tilePadding: EdgeInsets.zero,
+          childrenPadding: EdgeInsets.zero,
+          initiallyExpanded: preenchidas > 0,
+          shape: const Border(),
+          collapsedShape: const Border(),
+          title: Text(
+            'Dobras cutâneas',
+            style: Theme.of(context)
+                .textTheme
+                .titleLarge
+                ?.copyWith(fontWeight: FontWeight.bold),
+          ),
+          subtitle: Text(
+            '$preenchidas/$total · protocolo Jackson & Pollock (mm)',
+            style: const TextStyle(color: Colors.white54, fontSize: 12),
+          ),
+          children: [
+            const SizedBox(height: 8),
+            ..._linhasDeCampos(
+              dobrasCutaneasMedidas.keys.toList(),
+              _dobras,
+              dobrasCutaneasMedidas,
+              'mm',
+              aoMudar: (_) => setState(() {}),
+            ),
+            Container(
+              padding: const EdgeInsets.all(14),
+              decoration: BoxDecoration(
+                color: cor.withAlpha(22),
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: cor.withAlpha(70)),
+              ),
+              child: estimada == null
+                  ? Text(dica, style: const TextStyle(color: Colors.white70))
+                  : Row(
+                      children: [
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const Text(
+                                'Gordura estimada',
+                                style: TextStyle(color: Colors.white70),
+                              ),
+                              Text(
+                                '${_num1(estimada)}%',
+                                style: TextStyle(
+                                  color: cor,
+                                  fontSize: 24,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        FilledButton.tonal(
+                          onPressed: () => setState(
+                            () => _gordura.text = _num1(estimada),
+                          ),
+                          child: const Text('Usar'),
+                        ),
+                      ],
+                    ),
+            ),
+            const SizedBox(height: 4),
+          ],
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final cor = Theme.of(context).colorScheme.primary;
@@ -1363,6 +1888,12 @@ class _FormMedidaState extends State<_FormMedida>
             _cartaoBasico(cor),
             const SizedBox(height: 16),
             _cartaoMapa(cor),
+            const SizedBox(height: 16),
+            _cartaoExtras(cor),
+            const SizedBox(height: 16),
+            _cartaoDobras(cor),
+            const SizedBox(height: 16),
+            _cartaoFotos(cor),
             const SizedBox(height: 20),
             if (_erro != null)
               Padding(

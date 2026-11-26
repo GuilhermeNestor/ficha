@@ -3,13 +3,22 @@ import { px } from "@zos/utils";
 import { replace } from "@zos/router";
 import { BasePage } from "@zeppos/zml/base-page";
 import { DEVICE_WIDTH, DEVICE_HEIGHT } from "../layout.js";
+
 import {
   carregarResultadosPendentes,
   ultimoResultado,
   confirmarResultado,
 } from "../resultados.js";
-import { receberFichas, pacoteFichas } from "../ficha.js";
-import { listarGravacoes, enviarGravacoes } from "../gravacoes.js";
+
+import {
+  receberFichas,
+  pacoteFichas,
+} from "../ficha.js";
+
+import {
+  listarGravacoes,
+  enviarGravacoes,
+} from "../gravacoes.js";
 
 Page(BasePage({
   build() {
@@ -17,15 +26,21 @@ Page(BasePage({
     this.ocupado = false;
 
     hmUI.createWidget(hmUI.widget.FILL_RECT, {
-      x: 0, y: 0, w: DEVICE_WIDTH, h: DEVICE_HEIGHT,
+      x: 0,
+      y: 0,
+      w: DEVICE_WIDTH,
+      h: DEVICE_HEIGHT,
       color: 0x000000,
     });
 
     this.rotulo = hmUI.createWidget(hmUI.widget.TEXT, {
-      x: px(45), y: px(65),
-      w: DEVICE_WIDTH - px(90), h: px(215),
+      x: px(45),
+      y: px(65),
+      w: DEVICE_WIDTH - px(90),
+      h: px(215),
       text: "",
-      text_size: px(18), color: 0xffffff,
+      text_size: px(18),
+      color: 0xffffff,
       text_style: hmUI.text_style.WRAP,
       align_h: hmUI.align.CENTER_H,
       align_v: hmUI.align.CENTER_V,
@@ -33,21 +48,31 @@ Page(BasePage({
 
     const botao = (y, text, click_func) =>
       hmUI.createWidget(hmUI.widget.BUTTON, {
-        x: px(95), y: px(y),
-        w: DEVICE_WIDTH - px(190), h: px(48),
-        text, text_size: px(17),
+        x: px(95),
+        y: px(y),
+        w: DEVICE_WIDTH - px(190),
+        h: px(48),
+        text,
+        text_size: px(17),
         normal_color: 0xb6ff00,
         press_color: 0x8fc700,
         color: 0x000000,
         click_func,
       });
 
-    botao(290, "SINCRONIZAR", () => this.sincronizar());
-    botao(346, "VER RESULTADO", () => this.detalhes());
+    botao(290, "SINCRONIZAR", () => {
+      this.sincronizar();
+    });
+
+    botao(346, "VER RESULTADO", () => {
+      this.detalhes();
+    });
 
     botao(402, "VOLTAR", () => {
       if (!this.ocupado) {
-        replace({ url: "page/gt/home/index.page" });
+        replace({
+          url: "page/gt/home/index.page",
+        });
       }
     });
 
@@ -56,23 +81,30 @@ Page(BasePage({
 
   mostrar(texto) {
     if (this.ativo) {
-      this.rotulo.setProperty(hmUI.prop.TEXT, texto);
+      this.rotulo.setProperty(
+        hmUI.prop.TEXT,
+        texto
+      );
     }
   },
 
   atualizar() {
     try {
-      const p = carregarResultadosPendentes();
+      const resultados = carregarResultadosPendentes();
+      const gravacoes = listarGravacoes();
 
       this.mostrar(
-        `SINCRONIZAÇÃO\n` +
-        `${p.length} resultado(s) pendente(s)\n` +
-        `${listarGravacoes().length} gravação(ões) de teste\n` +
-        `${p.length
-          ? "Sincronize para liberar novo treino."
-          : "Pronto para treinar."}\n` +
-        `Abra o Zepp no celular.`
+        "SINCRONIZAÇÃO\n\n" +
+        `${resultados.length} resultado(s) pendente(s)\n` +
+        `${gravacoes.length} gravação(ões) de teste\n\n` +
+        (
+          resultados.length
+            ? "Sincronize para liberar novo treino."
+            : "Pronto para treinar."
+        ) +
+        "\nAbra o Zepp no celular."
       );
+
     } catch (e) {
       this.mostrar(e.message);
     }
@@ -86,6 +118,7 @@ Page(BasePage({
 
       if (!lista.length) {
         const ultimo = ultimoResultado();
+
         if (ultimo) lista.push(ultimo);
       }
 
@@ -106,7 +139,7 @@ Page(BasePage({
           `${r.seriesConcluidas} séries · ` +
           `${r.exerciciosConcluidos} exercícios\n` +
           `${r.estado}\n` +
-          `Toque VER RESULTADO para avançar.`
+          "Toque VER RESULTADO para avançar."
         );
 
         (r.cargas || []).forEach((c) => {
@@ -118,13 +151,16 @@ Page(BasePage({
                 ? "indisponível"
                 : c.ultimaCarga + " kg"
             }\n` +
-            `Toque VER RESULTADO para avançar.`
+            "Toque VER RESULTADO para avançar."
           );
         });
       });
 
-      this.indice = (this.indice || 0) % paginas.length;
+      this.indice =
+        (this.indice || 0) % paginas.length;
+
       this.mostrar(paginas[this.indice++]);
+
     } catch (e) {
       this.mostrar(e.message);
     }
@@ -138,37 +174,48 @@ Page(BasePage({
     try {
       this.mostrar("Conectando ao celular...");
 
-      // Gravações de teste primeiro; cada vaga só é liberada após o celular confirmar.
-      await enviarGravacoes(
-        (req) => this.pedir(req),
-        (texto) => this.mostrar(texto),
-        () => this.ativo
-      );
+      // 1. Enviar os resultados dos treinos.
 
-      const p = carregarResultadosPendentes();
+      const pendentes =
+        carregarResultadosPendentes();
 
-      for (const resultado of p) {
+      for (const resultado of pendentes) {
+
+        this.mostrar(
+          "ENVIANDO TREINO\n\n" +
+          resultado.fichaNome
+        );
+
         const ack = await this.pedir({
           method: "resultado.salvar",
+
           params: {
             versao: 1,
             resultado,
           },
         });
 
-        if (!ack || ack.resultadoId !== resultado.id) {
+        if (
+          !ack ||
+          ack.resultadoId !== resultado.id
+        ) {
           throw new Error(
-            "Confirmação não corresponde ao treino"
+            "Confirmação não corresponde ao treino."
           );
         }
 
         confirmarResultado(ack);
       }
 
+      // 2. Atualizar as fichas do relógio.
+
+      this.mostrar("Atualizando fichas...");
+
       const atual = pacoteFichas();
 
       const resposta = await this.pedir({
         method: "fichas.obter",
+
         params: {
           versao: 1,
           revisao: atual.revisao,
@@ -176,26 +223,68 @@ Page(BasePage({
       });
 
       if (!resposta || resposta.versao !== 1) {
-        throw new Error("Resposta de fichas inválida");
+        throw new Error(
+          "Resposta de fichas inválida."
+        );
       }
 
       if (resposta.pacote) {
         receberFichas(resposta.pacote);
+
       } else if (resposta.semAlteracoes !== true) {
-        throw new Error("Resposta incompleta");
+        throw new Error("Resposta incompleta.");
       }
 
-      this.mostrar(
-        "SINCRONIZAÇÃO CONCLUÍDA\n" +
-        "Resultados confirmados.\n" +
-        "Volte para iniciar o treino."
-      );
+      // 3. Enviar as gravações dos sensores.
+      // Uma falha nessa etapa não bloqueia
+      // a sincronização dos treinos.
+
+      try {
+        await enviarGravacoes(
+          (req) => this.pedir(req),
+          (texto) => this.mostrar(texto),
+          () => this.ativo
+        );
+
+      } catch (e) {
+        console.log(
+          "Gravações pendentes:",
+          String(e)
+        );
+      }
+
+      // 4. Conferir o que ainda está pendente.
+
+      const gravacoesPendentes =
+        listarGravacoes().length;
+
+      if (gravacoesPendentes > 0) {
+
+        this.mostrar(
+          "TREINOS SINCRONIZADOS\n\n" +
+          "Fichas atualizadas.\n" +
+          `${gravacoesPendentes} gravação(ões) pendente(s).\n` +
+          "Dados de teste preservados."
+        );
+
+      } else {
+
+        this.mostrar(
+          "SINCRONIZAÇÃO CONCLUÍDA\n\n" +
+          "Resultados confirmados.\n" +
+          "Fichas atualizadas.\n\n" +
+          "Pronto para treinar."
+        );
+      }
+
     } catch (e) {
+
       this.mostrar(
-        `Não foi possível concluir.\n` +
-        `${e.message || e}\n` +
-        `Pendências preservadas.`
+        "Não foi possível concluir.\n\n" +
+        `${e.message || e}\n\n` +
+        "Pendências preservadas."
       );
+
     } finally {
       this.ocupado = false;
     }
@@ -203,12 +292,16 @@ Page(BasePage({
 
   pedir(req) {
     return new Promise((resolve, reject) => {
+
       const timer = setTimeout(
-        () => reject(new Error("Sem resposta do celular")),
+        () => reject(
+          new Error("Sem resposta do celular")
+        ),
         15000
       );
 
       this.request(req).then(
+
         (r) => {
           clearTimeout(timer);
 
@@ -218,6 +311,7 @@ Page(BasePage({
             resolve(r);
           }
         },
+
         (e) => {
           clearTimeout(timer);
           reject(e);

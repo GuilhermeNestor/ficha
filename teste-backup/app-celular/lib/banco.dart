@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io';
 import 'dart:math';
 
 import 'package:path/path.dart';
@@ -16,6 +17,15 @@ String novoId(String prefixo) {
 
   return '${prefixo}_$partes';
 }
+
+/// Poses das fotos de evolução.
+const vistasFoto = <String, String>{
+  'frente': 'Frente',
+  'lado': 'Lado',
+  'costas': 'Costas',
+};
+
+final _nomeFoto = RegExp(r'^foto_[0-9a-f]{32}\.jpg$');
 
 const objetivosPerfil = [
   'Hipertrofia',
@@ -39,7 +49,47 @@ const circunferenciasMedidas = <String, String>{
   'coxaE': 'Coxa esquerda',
   'panturrilhaD': 'Panturrilha direita',
   'panturrilhaE': 'Panturrilha esquerda',
+  'antebracoD': 'Antebraço direito',
+  'antebracoE': 'Antebraço esquerdo',
+  'punho': 'Punho',
+  'gluteo': 'Glúteo',
+  'tornozelo': 'Tornozelo',
 };
+
+/// Dobras cutâneas (mm) do protocolo Jackson & Pollock de 7 dobras.
+const dobrasCutaneasMedidas = <String, String>{
+  'peitoral': 'Peitoral',
+  'axilarMedia': 'Axilar média',
+  'triceps': 'Tríceps',
+  'subescapular': 'Subescapular',
+  'abdominal': 'Abdominal',
+  'suprailiaca': 'Suprailíaca',
+  'coxa': 'Coxa',
+};
+
+/// % de gordura estimada (Jackson & Pollock, 7 dobras + equação de Siri).
+/// Precisa das 7 dobras, do sexo (Masculino/Feminino) e da idade na data
+/// da avaliação. Devolve null se faltar algo.
+double? gorduraJacksonPollock7(Map dobras, String? sexo, int? idade) {
+  if (idade == null || (sexo != 'Masculino' && sexo != 'Feminino')) {
+    return null;
+  }
+  var soma = 0.0;
+  for (final k in dobrasCutaneasMedidas.keys) {
+    final v = dobras[k];
+    final n = v is num
+        ? v.toDouble()
+        : double.tryParse(v?.toString().replaceAll(',', '.') ?? '');
+    if (n == null || n <= 0) return null;
+    soma += n;
+  }
+  final densidade = sexo == 'Masculino'
+      ? 1.112 - 0.00043499 * soma + 0.00000055 * soma * soma - 0.00028826 * idade
+      : 1.097 - 0.00046971 * soma + 0.00000056 * soma * soma - 0.00012828 * idade;
+  final g = 495 / densidade - 450;
+  if (!g.isFinite || g < 2 || g > 60) return null;
+  return double.parse(g.toStringAsFixed(1));
+}
 
 /// Idade em anos completos; atualiza sozinha conforme o tempo passa.
 int idadeEm(int nascimentoMs, [DateTime? ref]) {
@@ -169,7 +219,8 @@ class Banco {
   Future<Json> salvarMedida(Json recebida) async {
     final data = recebida['data'];
     if (data is! int || data <= 0) throw Exception('Data inválida.');
-    final peso = _numeroValidado(recebida['pesoKg'], 'Peso', 20, 400)!;
+    final peso =
+        _numeroValidado(recebida['pesoKg'], 'Peso', 20, 400, opcional: true);
     final gordura = _numeroValidado(recebida['gorduraPct'], '% de gordura', 2, 70,
         opcional: true);
     final cintura =
@@ -186,20 +237,58 @@ class Banco {
       }
     }
 
+    final dobras = <String, double>{};
+    final recebidasD = recebida['dobrasMm'];
+    if (recebidasD is Map) {
+      for (final chave in dobrasCutaneasMedidas.keys) {
+        final v = _numeroValidado(
+            recebidasD[chave], 'Dobra ${dobrasCutaneasMedidas[chave]}', 2, 80,
+            opcional: true);
+        if (v != null) dobras[chave] = v.toDouble();
+      }
+    }
+
+    // Fotos: no máximo uma por pose, só nomes de arquivo válidos.
+    final fotos = <Map<String, String>>[];
+    final recebidasF = recebida['fotos'];
+    if (recebidasF is List) {
+      final usadas = <String>{};
+      for (final f in recebidasF) {
+        if (f is! Map) continue;
+        final vista = f['vista'];
+        final arquivo = f['arquivo'];
+        if (vista is! String || !vistasFoto.containsKey(vista)) continue;
+        if (arquivo is! String || !_nomeFoto.hasMatch(arquivo)) continue;
+        if (!usadas.add(vista)) continue;
+        fotos.add({'vista': vista, 'arquivo': arquivo});
+      }
+    }
+
     final obs = (recebida['observacao'] as String? ?? '').trim();
     if (obs.length > 300) throw Exception('Observação muito longa.');
+
+    if (peso == null &&
+        gordura == null &&
+        cintura == null &&
+        circ.isEmpty &&
+        dobras.isEmpty &&
+        fotos.isEmpty) {
+      throw Exception('Preencha ao menos uma medida ou foto.');
+    }
 
     final medida = <String, dynamic>{
       'versao': 1,
       'id': (recebida['id'] as String?) ?? novoId('medida'),
       'data': data,
-      'pesoKg': peso,
+      if (peso != null) 'pesoKg': peso,
       if (gordura != null) 'gorduraPct': gordura,
-      if (gordura != null)
+      if (gordura != null && peso != null)
         'massaMagraKg':
             double.parse((peso * (1 - gordura / 100)).toStringAsFixed(1)),
       if (cintura != null) 'cinturaCm': cintura,
       if (circ.isNotEmpty) 'circunferenciasCm': circ,
+      if (dobras.isNotEmpty) 'dobrasMm': dobras,
+      if (fotos.isNotEmpty) 'fotos': fotos,
       if (obs.isNotEmpty) 'observacao': obs,
     };
 
@@ -214,7 +303,53 @@ class Banco {
 
   Future<void> excluirMedida(String id) async {
     final db = await database;
+    final linhas = await db.query('medidas', where: 'id = ?', whereArgs: [id]);
     await db.delete('medidas', where: 'id = ?', whereArgs: [id]);
+
+    // Apaga também os arquivos das fotos dessa avaliação.
+    for (final l in linhas) {
+      try {
+        final m = jsonDecode(l['conteudo'] as String);
+        final fotos = m is Map ? m['fotos'] : null;
+        if (fotos is List) {
+          for (final f in fotos) {
+            if (f is Map && f['arquivo'] is String) {
+              await apagarFoto(f['arquivo'] as String);
+            }
+          }
+        }
+      } catch (_) {}
+    }
+  }
+
+  // ---------- Fotos (ficam só neste aparelho) ----------
+
+  Future<Directory> pastaFotos() async {
+    final base = await getDatabasesPath();
+    final dir = Directory(join(base, 'fotos'));
+    if (!await dir.exists()) await dir.create(recursive: true);
+    return dir;
+  }
+
+  Future<File> arquivoFoto(String nome) async {
+    if (!_nomeFoto.hasMatch(nome)) throw Exception('Foto inválida.');
+    final dir = await pastaFotos();
+    return File(join(dir.path, nome));
+  }
+
+  /// Copia a imagem escolhida para a pasta do app e devolve o nome.
+  Future<String> guardarFoto(String origemPath) async {
+    final nome = '${novoId('foto')}.jpg';
+    final dir = await pastaFotos();
+    await File(origemPath).copy(join(dir.path, nome));
+    return nome;
+  }
+
+  Future<void> apagarFoto(String nome) async {
+    try {
+      final f = await arquivoFoto(nome);
+      if (await f.exists()) await f.delete();
+    } catch (_) {}
   }
 
   // ---------- Perfil ----------
@@ -307,9 +442,13 @@ class Banco {
           : {...perfil, 'idade': idadeEm(perfil['nascimento'] as int)},
       'fichas': fichas,
       'treinos': resultados,
-      'medidas': medidas.length > maxMedidas
-          ? medidas.sublist(medidas.length - maxMedidas)
-          : medidas,
+      // As fotos não saem do celular: tiramos a referência delas.
+      'medidas': [
+        for (final m in (medidas.length > maxMedidas
+            ? medidas.sublist(medidas.length - maxMedidas)
+            : medidas))
+          {...m}..remove('fotos'),
+      ],
     };
   }
 
