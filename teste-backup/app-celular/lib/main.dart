@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
 
 import 'banco.dart';
+import 'esforco.dart';
 import 'medidas.dart';
 import 'perfil.dart';
 import 'ponte.dart';
+import 'tela_ia.dart';
 import 'visual.dart';
 
 const verde = Color(0xFFB6FF00);
@@ -311,7 +313,9 @@ class _TelaInicialState extends State<TelaInicial>
                   ? 'Histórico'
                   : _aba == 2
                       ? 'Medidas'
-                      : 'Perfil',
+                      : _aba == 3
+                          ? 'Perfil'
+                          : 'Personal IA',
         ),
         actions: [
           if (_aba < 2)
@@ -355,6 +359,11 @@ class _TelaInicialState extends State<TelaInicial>
             selectedIcon: Icon(Icons.person, color: verde),
             label: 'Perfil',
           ),
+          NavigationDestination(
+            icon: Icon(Icons.auto_awesome_outlined),
+            selectedIcon: Icon(Icons.auto_awesome, color: verde),
+            label: 'Personal',
+          ),
         ],
       ),
     );
@@ -363,6 +372,7 @@ class _TelaInicialState extends State<TelaInicial>
   Widget _conteudo() {
     if (_aba == 2) return const TelaMedidas();
     if (_aba == 3) return const TelaPerfil();
+    if (_aba == 4) return const TelaPersonalIA();
 
     if (_carregando) {
       return const Center(
@@ -1017,6 +1027,8 @@ class _TelaInicialState extends State<TelaInicial>
                 ),
               ),
             ),
+
+            SeriesDoTreino(resultado: r),
 
             const SizedBox(height: 14),
 
